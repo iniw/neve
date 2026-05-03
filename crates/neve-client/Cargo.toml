@@ -1,0 +1,8 @@
+[package]
+name = "neve-client"
+version = { workspace = true }
+edition = { workspace = true }
+
+[dependencies]
+neve-protocol = { workspace = true }
+tokio = { workspace = true }
