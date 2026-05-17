@@ -1,4 +1,9 @@
 {
+  nixConfig = {
+    extra-substituters = [ "https://neve.cachix.org" ];
+    extra-trusted-public-keys = [ "neve.cachix.org-1:41XWH1l3h3QGtKzDMlOCrXGD1B7uf55fRqcGtOg7tLU=" ];
+  };
+
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
@@ -12,69 +17,15 @@
       let
         pkgs = import inputs.nixpkgs { inherit system; };
         crane = inputs.crane.mkLib pkgs;
+
+        checks = import ./nix/checks.nix { inherit pkgs crane; };
+        devShells = import ./nix/devshells.nix { inherit pkgs crane checks; };
       in
       {
-        devShells.default = crane.devShell {
-          checks = inputs.self.checks.${system};
+        inherit devShells checks;
 
-          packages = with pkgs; [
-            rust-analyzer
-          ];
-        };
-
-        checks =
-          let
-            src = crane.cleanCargoSource ./.;
-
-            cargoArtifacts = crane.buildDepsOnly {
-              inherit src;
-              strictDeps = true;
-            };
-          in
-          {
-            build-and-test = crane.buildPackage {
-              inherit src cargoArtifacts;
-            };
-
-            clippy = crane.cargoClippy {
-              inherit src cargoArtifacts;
-
-              cargoClippyExtraArgs = "--all-targets -- --deny warnings";
-            };
-
-            doc = crane.cargoDocTest {
-              inherit src cargoArtifacts;
-            };
-
-            fmt = crane.cargoFmt {
-              inherit src;
-            };
-
-            toml-fmt = pkgs.stdenvNoCC.mkDerivation {
-              name = "toml-fmt";
-              src = pkgs.lib.sources.sourceFilesBySuffices ./. [ ".toml" ];
-
-              nativeBuildInputs = [ pkgs.tombi ];
-
-              buildPhase = ''
-                tombi format --check --diff --offline
-                tombi lint --offline
-                touch $out
-              '';
-            };
-
-            typos = pkgs.stdenvNoCC.mkDerivation {
-              name = "typos";
-              src = ./.;
-
-              nativeBuildInputs = [ pkgs.typos ];
-
-              buildPhase = ''
-                typos
-                touch $out
-              '';
-            };
-          };
+        # Allow easily running a specific check with `nix build .#foo`
+        packages = checks;
       }
     );
 }

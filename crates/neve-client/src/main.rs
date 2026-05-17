@@ -1,66 +1,31 @@
-use std::{
-    env::args,
-    net::{IpAddr, Ipv4Addr, SocketAddr},
-};
-
-use tokio::{
-    io::{self, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, stdin},
-    net::TcpStream,
-    select,
-};
-
-use neve_protocol::{client, server};
+use anyhow::bail;
+use neve_protocol::{SERVER_PORT, ShareInfoRequest, neve_service_client::NeveServiceClient};
+use std::env::args;
+use tracing::info;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
-async fn main() -> io::Result<()> {
+async fn main() -> anyhow::Result<()> {
+    init_tracing();
+
     let Some(name) = args().nth(1) else {
-        eprintln!("Usage: neve-client [username]");
-        return Err(io::Error::from(io::ErrorKind::InvalidInput));
+        bail!("Usage: neve-client [name]");
     };
 
-    let mut stream =
-        TcpStream::connect(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 5547)).await?;
+    let mut client = NeveServiceClient::connect(format!("http://[::1]:{SERVER_PORT}")).await?;
 
-    let bytes = client::to_bytes(client::Event::Register { name });
-    stream.write_all(&bytes).await?;
+    info!("Connected to server");
 
-    let mut stdin = BufReader::new(stdin());
+    let request = tonic::Request::new(ShareInfoRequest { name });
 
-    let mut buf = [0; 4096];
-
-    loop {
-        let mut line = String::new();
-        select! {
-            read = stdin.read_line(&mut line) => match read {
-                Ok(0) => break,
-                Ok(_) => {
-                    // Strip the newline
-                    line.pop();
-
-                    let bytes = client::to_bytes(client::Event::Message { data: line.clone() });
-                    stream.write_all(&bytes).await?;
-                }
-                Err(err) => {
-                    dbg!(err);
-                }
-            },
-            read = stream.read(&mut buf) => match read {
-                Ok(0) => break,
-                Ok(n) => {
-                    let bytes = &buf[..n];
-                    let event = server::access(bytes);
-                    match event {
-                        server::ArchivedEvent::Message { from, data } => {
-                            println!("{}: {}", from, data);
-                        }
-                    }
-                }
-                Err(err) =>  {
-                    dbg!(err);
-                },
-            }
-        }
-    }
+    _ = client.share_info(request).await?;
 
     Ok(())
+}
+
+fn init_tracing() {
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::EnvFilter::from_default_env())
+        .with(tracing_subscriber::fmt::layer().compact())
+        .init();
 }

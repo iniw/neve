@@ -7,9 +7,17 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace.dependencies]
-neve-protocol = { path = "crates/neve-protocol" }
-rkyv = { version = "0.8.16" }
+anyhow = { version = "1.0.102" }
+async-stream = { version = "0.3.6" }
+prost = { version = "0.14.3" }
 tokio = { version = "1.52.3", features = ["full"] }
+tonic = { version = "0.14.6" }
+tonic-prost = { version = "0.14.6" }
+tonic-prost-build = { version = "0.14.6" }
+tracing = { version = "0.1.44" }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+
+neve-protocol = { path = "crates/neve-protocol" }
 
 [workspace.metadata.crane]
 name = "neve"

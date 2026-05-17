@@ -4,4 +4,9 @@ version = { workspace = true }
 edition = { workspace = true }
 
 [dependencies]
-rkyv = { workspace = true }
+prost = { workspace = true }
+tonic = { workspace = true }
+tonic-prost = { workspace = true }
+
+[build-dependencies]
+tonic-prost-build = { workspace = true }

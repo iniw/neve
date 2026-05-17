@@ -4,5 +4,10 @@ version = { workspace = true }
 edition = { workspace = true }
 
 [dependencies]
-neve-protocol = { workspace = true }
+anyhow = { workspace = true }
 tokio = { workspace = true }
+tonic = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+neve-protocol = { workspace = true }
