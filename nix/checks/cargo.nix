@@ -1,17 +1,13 @@
 {
+  self,
   lib,
   crane,
   protobuf,
 }:
 let
-  root = ../../.;
-
-  src = lib.fileset.toSource {
-    inherit root;
-    fileset = lib.fileset.unions [
-      (crane.fileset.commonCargoSources root)
-      (lib.fileset.fileFilter (file: file.hasExt "proto") root)
-    ];
+  src = lib.cleanSourceWith {
+    src = self;
+    filter = path: type: (crane.filterCargoSources path type) || lib.hasSuffix ".proto" path;
   };
 
   cargoArtifacts = crane.buildDepsOnly {

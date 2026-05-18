@@ -1,12 +1,13 @@
 {
+  self,
   pkgs,
   crane,
 }:
 let
-  cargo-checks = pkgs.callPackage ./checks/cargo.nix { inherit crane; };
-  proto-checks = pkgs.callPackage ./checks/proto.nix { };
-  toml-checks = pkgs.callPackage ./checks/toml.nix { };
-  typos-check = pkgs.callPackage ./checks/typos.nix { };
+  cargo-checks = pkgs.callPackage ./checks/cargo.nix { inherit self crane; };
+  proto-checks = pkgs.callPackage ./checks/proto.nix { inherit self; };
+  toml-checks = pkgs.callPackage ./checks/toml.nix { inherit self; };
+  typos-check = pkgs.callPackage ./checks/typos.nix { inherit self; };
 in
 {
   inherit (cargo-checks)

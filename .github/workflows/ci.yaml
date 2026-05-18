@@ -27,7 +27,7 @@ jobs:
       - name: Install Nix
         uses: NixOS/nix-installer-action@main
 
-      - name: Install Cachix
+      - name: Setup Cachix
         uses: cachix/cachix-action@v17
         with:
           name: neve

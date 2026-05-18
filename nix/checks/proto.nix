@@ -1,4 +1,5 @@
 {
+  self,
   lib,
   stdenvNoCC,
   buf,
@@ -9,7 +10,7 @@ let
     stdenvNoCC.mkDerivation {
       name = "proto-${name}";
 
-      src = lib.sourceFilesBySuffices ../../. [
+      src = lib.sourceFilesBySuffices self [
         "buf.yaml"
         ".proto"
       ];

@@ -1,4 +1,5 @@
 {
+  self,
   lib,
   stdenvNoCC,
   tombi,
@@ -9,7 +10,7 @@ let
     stdenvNoCC.mkDerivation {
       name = "toml-${name}";
 
-      src = lib.sourceFilesBySuffices ../../. [ ".toml" ];
+      src = lib.sourceFilesBySuffices self [ ".toml" ];
 
       nativeBuildInputs = [ tombi ];
 
