@@ -1,11 +1,12 @@
 {
+  self,
   stdenvNoCC,
   typos,
 }:
 stdenvNoCC.mkDerivation {
   name = "typos-check";
 
-  src = ../../.;
+  src = self;
 
   nativeBuildInputs = [ typos ];
 

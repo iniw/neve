@@ -18,7 +18,10 @@
         pkgs = import inputs.nixpkgs { inherit system; };
         crane = inputs.crane.mkLib pkgs;
 
-        checks = import ./nix/checks.nix { inherit pkgs crane; };
+        checks = import ./nix/checks.nix {
+          inherit (inputs) self;
+          inherit pkgs crane;
+        };
         devShells = import ./nix/devshells.nix { inherit pkgs crane checks; };
       in
       {
