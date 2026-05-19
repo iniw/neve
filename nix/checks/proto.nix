@@ -5,10 +5,10 @@
   buf,
 }:
 let
-  buf-cmd =
-    cmd: name:
+  run-buf =
+    { name, cmd }:
     stdenvNoCC.mkDerivation {
-      name = "proto-${name}";
+      inherit name;
 
       src = lib.sourceFilesBySuffices self [
         "buf.yaml"
@@ -29,6 +29,13 @@ let
     };
 in
 {
-  proto-lint = buf-cmd "lint" "lint";
-  proto-fmt = buf-cmd "format --exit-code --diff" "fmt";
+  proto-lint = run-buf {
+    name = "proto-lint";
+    cmd = "lint";
+  };
+
+  proto-fmt = run-buf {
+    name = "proto-fmt";
+    cmd = "format --exit-code --diff";
+  };
 }

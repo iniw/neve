@@ -1,52 +1,68 @@
 {
   self,
-  lib,
   crane,
+  lib,
   protobuf,
 }:
 let
+  # crane automatically appends the "type" of the derivation to as a suffix `pname`:
+  # "-test" for `crane.cargoTest`, "-clippy" for `crane.cargoClippy`, "-doc" for `crane.cargoDoc`, ...
+  #
+  # We want to keep the derivations consistent with their check's name:
+  # "cargo-clippy", "cargo-fmt", "cargo-doc"...
+  #
+  # To achieve this we set `pname` to "cargo" and let crane add the suffix, then match the check's name to crane's
+  # suffix.
+  # The only exception to this is the `crane.buildPackage` builder that we use for the `cargo-build-and-test` check,
+  # which doesn't append a suffix, so we just set it's name manually.
+  pname = "cargo";
+
   src = lib.cleanSourceWith {
     src = self;
     filter = path: type: (crane.filterCargoSources path type) || lib.hasSuffix ".proto" path;
   };
 
-  cargoArtifacts = crane.buildDepsOnly {
-    inherit src;
-    strictDeps = true;
-  };
-
   nativeBuildInputs = [ protobuf ];
+
+  # For `crane.buildDepsOnly` crane adds "-deps" to `pname`, so the derivation is called "cargo-deps".
+  cargoArtifacts = crane.buildDepsOnly {
+    inherit pname src;
+  };
 in
-rec {
-  cargo-build = crane.buildPackage {
-    inherit src nativeBuildInputs cargoArtifacts;
+{
+  cargo-build-and-test = crane.buildPackage {
+    pname = "cargo-build-and-test";
+
+    inherit
+      src
+      nativeBuildInputs
+      cargoArtifacts
+      ;
 
     cargoBuildExtraArgs = "--all-targets";
-
-    # We'll run tests in another check
-    doCheck = false;
-
-    # Install `target/` as an output so that the `cargo-test` check has a cached build
-    doInstallCargoArtifacts = true;
-  };
-
-  cargo-test = crane.cargoTest {
-    inherit src;
-
-    cargoArtifacts = cargo-build;
   };
 
   cargo-clippy = crane.cargoClippy {
-    inherit src nativeBuildInputs cargoArtifacts;
+    inherit
+      pname
+      src
+      nativeBuildInputs
+      cargoArtifacts
+      ;
 
     cargoClippyExtraArgs = "--all-targets -- --deny warnings";
   };
 
   cargo-fmt = crane.cargoFmt {
-    inherit src;
+    inherit pname src;
   };
 
   cargo-doc = crane.cargoDoc {
-    inherit src nativeBuildInputs cargoArtifacts;
+    inherit
+      pname
+      src
+      nativeBuildInputs
+      cargoArtifacts
+      ;
   };
 }

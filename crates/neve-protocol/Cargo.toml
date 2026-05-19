@@ -1,12 +1,12 @@
 [package]
 name = "neve-protocol"
-version = { workspace = true }
-edition = { workspace = true }
+version.workspace = true
+edition.workspace = true
 
 [dependencies]
-prost = { workspace = true }
-tonic = { workspace = true }
-tonic-prost = { workspace = true }
+prost.workspace = true
+tonic.workspace = true
+tonic-prost.workspace = true
 
 [build-dependencies]
-tonic-prost-build = { workspace = true }
+tonic-prost-build.workspace = true

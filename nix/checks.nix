@@ -7,12 +7,11 @@ let
   cargo-checks = pkgs.callPackage ./checks/cargo.nix { inherit self crane; };
   proto-checks = pkgs.callPackage ./checks/proto.nix { inherit self; };
   toml-checks = pkgs.callPackage ./checks/toml.nix { inherit self; };
-  typos-check = pkgs.callPackage ./checks/typos.nix { inherit self; };
+  misc-checks = pkgs.callPackage ./checks/misc.nix { inherit self; };
 in
 {
   inherit (cargo-checks)
-    cargo-build
-    cargo-test
+    cargo-build-and-test
     cargo-clippy
     cargo-fmt
     cargo-doc
@@ -22,5 +21,5 @@ in
 
   inherit (toml-checks) toml-lint toml-fmt;
 
-  inherit typos-check;
+  inherit (misc-checks) actionlint typos;
 }

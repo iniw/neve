@@ -1,5 +1,6 @@
+use clap::Parser;
 use neve_protocol::{
-    ChatRequest, ChatResponse, SERVER_PORT, ShareInfoRequest, ShareInfoResponse,
+    ChatRequest, ChatResponse, ShareInfoRequest, ShareInfoResponse,
     neve_service_server::{NeveService, NeveServiceServer},
 };
 use std::{collections::HashMap, net::SocketAddr, pin::Pin};
@@ -7,7 +8,27 @@ use tokio::sync::{RwLock, broadcast};
 use tokio_stream::{Stream, StreamExt, wrappers::BroadcastStream};
 use tonic::{Request, Response, Status, transport::Server};
 use tracing::{debug, info};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    tracing_subscriber::FmtSubscriber::builder()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .without_time()
+        .init();
+
+    let args = ServerArgs::parse();
+
+    let addr = format!("[::]:{}", args.port).parse()?;
+    info!(?addr, "Server starting");
+
+    let server = MainNeveServer::default();
+    Server::builder()
+        .add_service(NeveServiceServer::new(server))
+        .serve(addr)
+        .await?;
+
+    Ok(())
+}
 
 #[derive(Debug)]
 pub struct MainNeveServer {
@@ -24,7 +45,7 @@ impl NeveService for MainNeveServer {
         request: Request<ShareInfoRequest>,
     ) -> Result<Response<ShareInfoResponse>, Status> {
         if let Some(addr) = request.remote_addr() {
-            debug!(?addr, "Client has shared info");
+            debug!(?addr, "New client");
 
             self.clients
                 .write()
@@ -50,7 +71,7 @@ impl NeveService for MainNeveServer {
             return Err(Status::unauthenticated("Client hasn't registered yet"));
         };
 
-        info!(?from, ?addr, "Got a chat request");
+        debug!(?from, ?addr, "Request");
 
         let messages_tx = self.messages_tx.clone();
         tokio::spawn(async move {
@@ -61,10 +82,17 @@ impl NeveService for MainNeveServer {
                     continue;
                 };
 
-                _ = messages_tx.send(ChatResponse {
-                    from: from.clone(),
-                    message: request.message,
-                });
+                debug!(msg = ?request.message, ?from, "Broadcasting");
+
+                if messages_tx
+                    .send(ChatResponse {
+                        from: from.clone(),
+                        message: request.message,
+                    })
+                    .is_err()
+                {
+                    return;
+                }
             }
         });
 
@@ -87,26 +115,8 @@ impl Default for MainNeveServer {
     }
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    init_tracing();
-
-    let addr = format!("[::1]:{SERVER_PORT}").parse()?;
-    let server = MainNeveServer::default();
-
-    info!(?addr, "Server will start listening");
-
-    Server::builder()
-        .add_service(NeveServiceServer::new(server))
-        .serve(addr)
-        .await?;
-
-    Ok(())
-}
-
-fn init_tracing() {
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::from_default_env())
-        .with(tracing_subscriber::fmt::layer().compact())
-        .init();
+#[derive(Parser)]
+struct ServerArgs {
+    #[arg(long)]
+    port: u16,
 }
