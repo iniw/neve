@@ -485,6 +485,7 @@ dependencies = [
  "async-stream",
  "neve-protocol",
  "tokio",
+ "tokio-stream",
  "tonic",
  "tracing",
  "tracing-subscriber",
@@ -507,6 +508,7 @@ dependencies = [
  "anyhow",
  "neve-protocol",
  "tokio",
+ "tokio-stream",
  "tonic",
  "tracing",
  "tracing-subscriber",
@@ -922,6 +924,7 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]
