@@ -7,6 +7,7 @@ edition = { workspace = true }
 anyhow = { workspace = true }
 async-stream = { workspace = true }
 tokio = { workspace = true }
+tokio-stream = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
