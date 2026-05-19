@@ -5,10 +5,10 @@
   tombi,
 }:
 let
-  tombi-cmd =
-    cmd: name:
+  run-tombi =
+    { name, cmd }:
     stdenvNoCC.mkDerivation {
-      name = "toml-${name}";
+      inherit name;
 
       src = lib.sourceFilesBySuffices self [ ".toml" ];
 
@@ -22,6 +22,13 @@ let
     };
 in
 {
-  toml-lint = tombi-cmd "lint --offline" "lint";
-  toml-fmt = tombi-cmd "format --offline --check --diff" "fmt";
+  toml-lint = run-tombi {
+    name = "toml-lint";
+    cmd = "lint --offline";
+  };
+
+  toml-fmt = run-tombi {
+    name = "toml-fmt";
+    cmd = "format --offline --check --diff";
+  };
 }

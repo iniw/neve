@@ -7,18 +7,71 @@ on:
   pull_request:
 
 jobs:
+  generate-check-matrix:
+    name: Generate check matrix
+    runs-on: ubuntu-latest
+
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install Nix
+        uses: NixOS/nix-installer-action@main
+        with:
+          extra-conf: |
+            experimental-features = nix-command flakes pipe-operators
+
+      - name: Generate matrix
+        id: matrix
+        run: |
+          {
+            echo "matrix<<EOF"
+            nix eval --json ".#checks" --apply '
+              checks:
+              let
+                # Our code can behave differently between platforms, so keep these
+                # checks running on every requested OS/arch.
+                # Formatting and repository-wide lint checks are essentially platform
+                # independent, so one Linux run is enough for them.
+                crossPlatformChecks = [
+                  "cargo-build-and-test"
+                  "cargo-clippy"
+                ];
+
+                checksFor =
+                  system: runner:
+                  checks
+                  |> builtins.getAttr system
+                  |> builtins.attrNames
+                  |> builtins.filter (
+                    check:
+                    system == "x86_64-linux" || builtins.elem check crossPlatformChecks
+                  )
+                  |> builtins.map (check: {
+                    inherit check system runner;
+                  });
+              in
+              {
+                include =
+                     checksFor "x86_64-linux" "ubuntu-latest"
+                  ++ checksFor "aarch64-darwin" "macos-latest"
+                     ;
+              }
+            '
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
   check:
-    name: CI @ ${{ matrix.system }}
-    runs-on: ${{ matrix.runner_label }}
+    name: ${{ matrix.check }} [${{ matrix.system }}]
+    needs: generate-check-matrix
+    runs-on: ${{ matrix.runner }}
 
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - system: x86_64-linux
-            runner_label: ubuntu-latest
-          - system: aarch64-darwin
-            runner_label: macos-latest
+      matrix: ${{ fromJSON(needs.generate-check-matrix.outputs.matrix) }}
 
     steps:
       - name: Checkout repository
@@ -34,4 +87,24 @@ jobs:
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       - name: Check
-        run: nix flake check --keep-going --print-build-logs
+        run: nix build ".#checks.${{ matrix.system }}.${{ matrix.check }}" --print-build-logs
+
+      - name: Collect Nix build logs
+        if: always()
+        run: |
+          drv="$(nix eval --raw ".#checks.${{ matrix.system }}.${{ matrix.check }}.drvPath")"
+          log="${{ matrix.check }}.log"
+          {
+            if ! nix log "$drv" 2> /dev/null; then
+              echo "No Nix build log was available for '${{ matrix.check }}'."
+              echo
+              echo "This likely means the derivation was substituted from the cache."
+            fi
+          } > "$log"
+
+      - name: Upload Nix build logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: "Logs for '${{ matrix.check }}' on ${{ matrix.system }}"
+          path: ${{ matrix.check }}.log

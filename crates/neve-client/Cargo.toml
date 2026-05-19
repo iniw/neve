@@ -1,15 +1,16 @@
 [package]
 name = "neve-client"
-version = { workspace = true }
-edition = { workspace = true }
+version.workspace = true
+edition.workspace = true
 
 [dependencies]
-anyhow = { workspace = true }
-async-stream = { workspace = true }
-tokio = { workspace = true }
-tokio-stream = { workspace = true }
-tonic = { workspace = true }
-tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
+anyhow.workspace = true
+async-stream.workspace = true
+clap.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+tonic.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
 
-neve-protocol = { workspace = true }
+neve-protocol.workspace = true

@@ -25,7 +25,7 @@
         devShells = import ./nix/devshells.nix { inherit pkgs crane checks; };
       in
       {
-        inherit devShells checks;
+        inherit checks devShells;
 
         # Allow easily running a specific check with `nix build .#foo`
         packages = checks;
