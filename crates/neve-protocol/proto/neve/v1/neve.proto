@@ -4,7 +4,7 @@ package neve.v1;
 
 service NeveService {
   rpc ShareInfo(ShareInfoRequest) returns (ShareInfoResponse);
-  // rpc Chat(stream ChatRequest) returns (stream ChatResponse);
+  rpc Chat(stream ChatRequest) returns (stream ChatResponse);
 }
 
 message ShareInfoRequest {
@@ -13,11 +13,11 @@ message ShareInfoRequest {
 
 message ShareInfoResponse {}
 
-// message ChatRequest {
-//   string message = 1;
-// }
+message ChatRequest {
+  string message = 1;
+}
 
-// message ChatResponse {
-//   string from = 1;
-//   string message = 2;
-// }
+message ChatResponse {
+  string from = 1;
+  string message = 2;
+}
