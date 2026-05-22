@@ -67,5 +67,9 @@ in
       nativeBuildInputs
       cargoArtifacts
       ;
+
+    # Rust doesn't offer a nice CLI interface to deny warnings from `cargo doc`.
+    # See: https://github.com/rust-lang/cargo/issues/8424#issuecomment-1070988443
+    env.RUSTDOCFLAGS = "--deny warnings";
   };
 }
