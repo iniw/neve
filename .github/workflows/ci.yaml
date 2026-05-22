@@ -29,28 +29,19 @@ jobs:
         run: |
           {
             echo "matrix<<EOF"
-            nix eval --json ".#checks" --apply '
+            nix eval --impure --json ".#checks" --apply '
               checks:
               let
-                # Our code can behave differently between platforms, so keep these
-                # checks running on every requested OS/arch.
-                # Formatting and repository-wide lint checks are essentially platform
-                # independent, so one Linux run is enough for them.
-                crossPlatformChecks = [
-                  "cargo-build-and-test"
-                  "cargo-clippy"
-                ];
+                lib = (import <nixpkgs> { }).lib;
 
                 checksFor =
                   system: runner:
                   checks
-                  |> builtins.getAttr system
-                  |> builtins.attrNames
-                  |> builtins.filter (
-                    check:
-                    system == "x86_64-linux" || builtins.elem check crossPlatformChecks
+                  |> lib.getAttr system
+                  |> lib.filterAttrs (_: check:
+                    system == "x86_64-linux" || (check.multiPlatform or false)
                   )
-                  |> builtins.map (check: {
+                  |> lib.mapAttrsToList (check: _: {
                     inherit check system runner;
                   });
               in

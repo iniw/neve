@@ -40,6 +40,9 @@ in
       ;
 
     cargoBuildExtraArgs = "--all-targets";
+
+    # We want to make sure the code builds and runs properly on all CI-tested platforms.
+    passthru.multiPlatform = true;
   };
 
   cargo-clippy = crane.cargoClippy {
