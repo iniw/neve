@@ -19,7 +19,7 @@ let
 
   src = lib.cleanSourceWith {
     src = self;
-    filter = path: type: (crane.filterCargoSources path type) || lib.hasSuffix ".proto" path;
+    filter = path: type: crane.filterCargoSources path type || lib.hasSuffix ".proto" path;
   };
 
   nativeBuildInputs = [ protobuf ];
@@ -41,7 +41,7 @@ in
 
     cargoBuildExtraArgs = "--all-targets";
 
-    # We want to make sure the code builds and runs properly on all CI-tested platforms.
+    # We want to make sure the code builds and runs properly in all of CI's platforms.
     passthru.multiPlatform = true;
   };
 
@@ -67,5 +67,9 @@ in
       nativeBuildInputs
       cargoArtifacts
       ;
+
+    # `cargo doc` doesn't have a nice interface to deny warnings :(
+    # See https://github.com/rust-lang/cargo/issues/8424#issuecomment-1070988443
+    env.RUSTDOCFLAGS = "--deny warnings";
   };
 }

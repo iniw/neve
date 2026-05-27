@@ -27,75 +27,62 @@ jobs:
       - name: Generate matrix
         id: matrix
         run: |
+          matrix="$(nix eval --impure --json ".#checks" --apply '
+            checks:
+            let
+              lib = (import <nixpkgs> { }).lib;
+
+              checksFor =
+                system: runner:
+                checks
+                |> lib.getAttr system
+                |> lib.filterAttrs (_: check:
+                  system == "x86_64-linux" || (check.multiPlatform or false)
+                )
+                |> lib.mapAttrsToList (check: derivation: {
+                  inherit check system runner;
+                  outputPath = toString derivation;
+                });
+            in
+            {
+              include =
+                   checksFor "x86_64-linux" "ubuntu-latest"
+                ++ checksFor "aarch64-darwin" "macos-latest"
+                   ;
+            }
+          ')"
+
+          cached_checks="$(mktemp)"
+          while IFS=$'\t' read -r system check output_path; do
+            if nix path-info --store https://neve.cachix.org "$output_path" > /dev/null 2>&1; then
+              printf '%s\t%s\n' "$system" "$check" >> "$cached_checks"
+            fi
+          done < <(jq -r '.include[] | [.system, .check, .outputPath] | @tsv' <<< "$matrix")
+
           {
             echo "matrix<<EOF"
-            nix eval --impure --json ".#checks" --apply '
-              checks:
-              let
-                lib = (import <nixpkgs> { }).lib;
-
-                checksFor =
-                  system: runner:
-                  checks
-                  |> lib.getAttr system
-                  |> lib.filterAttrs (_: check:
-                    system == "x86_64-linux" || (check.multiPlatform or false)
-                  )
-                  |> lib.mapAttrsToList (check: _: {
-                    inherit check system runner;
-                  });
-              in
-              {
-                include =
-                     checksFor "x86_64-linux" "ubuntu-latest"
-                  ++ checksFor "aarch64-darwin" "macos-latest"
-                     ;
-              }
-            '
+            jq --rawfile cachedChecks "$cached_checks" '
+              ($cachedChecks | split("\n") | map(select(length > 0))) as $cachedChecks
+              | .include |= map(
+                . as $item
+                | ($item | [.system, .check] | @tsv) as $check
+                | $item + { cached: ($cachedChecks | index($check) != null) }
+              )
+              | del(.include[].outputPath)
+            ' <<< "$matrix"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
   check:
     name: ${{ matrix.check }} [${{ matrix.system }}]
     needs: generate-check-matrix
-    runs-on: ${{ matrix.runner }}
-
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.generate-check-matrix.outputs.matrix) }}
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Install Nix
-        uses: NixOS/nix-installer-action@main
-
-      - name: Setup Cachix
-        uses: cachix/cachix-action@v17
-        with:
-          name: neve
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-
-      - name: Check
-        run: nix build ".#checks.${{ matrix.system }}.${{ matrix.check }}" --print-build-logs
-
-      - name: Collect Nix build logs
-        if: always()
-        run: |
-          drv="$(nix eval --raw ".#checks.${{ matrix.system }}.${{ matrix.check }}.drvPath")"
-          log="${{ matrix.check }}.log"
-          {
-            if ! nix log "$drv" 2> /dev/null; then
-              echo "No Nix build log was available for '${{ matrix.check }}'."
-              echo
-              echo "This likely means the derivation was substituted from the cache."
-            fi
-          } > "$log"
-
-      - name: Upload Nix build logs
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: "Logs for '${{ matrix.check }}' on ${{ matrix.system }}"
-          path: ${{ matrix.check }}.log
+    uses: ./.github/workflows/nix-check.yaml
+    with:
+      check: ${{ matrix.check }}
+      system: ${{ matrix.system }}
+      runner: ${{ matrix.runner }}
+      cached: ${{ matrix.cached }}
+    secrets: inherit

@@ -1,0 +1,58 @@
+name: Nix check
+
+on:
+  workflow_call:
+    inputs:
+      check:
+        required: true
+        type: string
+      system:
+        required: true
+        type: string
+      runner:
+        required: true
+        type: string
+      cached:
+        required: true
+        type: boolean
+
+jobs:
+  check:
+    if: ${{ inputs.cached != true }}
+    runs-on: ${{ inputs.runner }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install Nix
+        uses: NixOS/nix-installer-action@main
+
+      - name: Setup Cachix
+        uses: cachix/cachix-action@v17
+        with:
+          name: neve
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - name: Check
+        run: nix build ".#checks.${{ inputs.system }}.${{ inputs.check }}" --print-build-logs
+
+      - name: Collect Nix build logs
+        if: always()
+        run: |
+          drv="$(nix eval --raw ".#checks.${{ inputs.system }}.${{ inputs.check }}.drvPath")"
+          log="${{ inputs.check }}.log"
+          {
+            if ! nix log "$drv" 2> /dev/null; then
+              echo "No Nix build log was available for '${{ inputs.check }}'."
+              echo
+              echo "This likely means the derivation was substituted from the cache."
+            fi
+          } > "$log"
+
+      - name: Upload Nix build logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: "Logs for '${{ inputs.check }}' on ${{ inputs.system }}"
+          path: ${{ inputs.check }}.log
