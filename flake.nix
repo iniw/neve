@@ -7,7 +7,7 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
-    crane.url = "github:ipetkov/crane";
+    crane.url = "github:ipetkov/crane/v0.23.4";
   };
 
   outputs =
