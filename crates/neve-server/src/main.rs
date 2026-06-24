@@ -1,6 +1,6 @@
 use clap::Parser;
 use neve_protocol::{
-    AUTH_TOKEN_KEY, AuthenticateRequest, AuthenticateResponse, ChatRequest, ChatResponse,
+    AUTH_TOKEN_HEADER, AuthenticateRequest, AuthenticateResponse, ChatRequest, ChatResponse,
     auth_service_server::{AuthService, AuthServiceServer},
     chat_service_server::{ChatService, ChatServiceServer},
 };
@@ -8,13 +8,19 @@ use std::{
     collections::HashMap,
     pin::Pin,
     sync::{
-        Arc, RwLock,
+        Arc,
         atomic::{AtomicU32, Ordering},
     },
 };
-use tokio::sync::broadcast;
+use tokio::sync::{RwLock, broadcast};
 use tokio_stream::{Stream, StreamExt, wrappers::BroadcastStream};
-use tonic::{Request, Response, Status, metadata::AsciiMetadataValue, transport::Server};
+use tonic::{
+    Request, Response, Status,
+    body::Body,
+    codegen::http::{HeaderValue, Request as HttpRequest},
+    transport::Server,
+};
+use tonic_middleware::{InterceptorFor, RequestInterceptor};
 use tracing::{Instrument, debug, info};
 
 #[derive(Parser)]
@@ -41,28 +47,14 @@ async fn main() -> anyhow::Result<()> {
     let auth_server = AuthServer::new(auth_db.clone());
     let chat_server = ChatServer::new();
 
-    let check_auth = move |mut request: Request<()>| {
-        let Some(auth_token) = request.metadata().get(AUTH_TOKEN_KEY) else {
-            return Err(Status::unauthenticated("Missing authentication token"));
-        };
-
-        let Ok(auth_db) = auth_db.read() else {
-            return Err(Status::internal("Internal lock poisoning"));
-        };
-
-        if let Some(username) = auth_db.get(auth_token) {
-            request.extensions_mut().insert(AuthInfo {
-                username: username.clone(),
-            });
-            Ok(request)
-        } else {
-            Err(Status::unauthenticated("Invalid authentication token"))
-        }
-    };
+    let auth_interceptor = AuthInterceptor { auth_db };
 
     Server::builder()
         .add_service(AuthServiceServer::new(auth_server))
-        .add_service(ChatServiceServer::with_interceptor(chat_server, check_auth))
+        .add_service(InterceptorFor::new(
+            ChatServiceServer::new(chat_server),
+            auth_interceptor,
+        ))
         .serve(addr)
         .await?;
 
@@ -155,24 +147,47 @@ impl AuthService for AuthServer {
         let AuthenticateRequest { username } = request.into_inner();
 
         if USER_DB.contains(&username.as_str()) {
-            let Ok(mut auth_db) = self.auth_db.write() else {
-                return Err(Status::internal("Internal lock poisoning"));
-            };
-
             let auth_token = self
                 .auth_counter
                 .fetch_add(1, Ordering::Relaxed)
                 .to_string();
 
-            let auth_token_metadata_value = auth_token
-                .parse::<AsciiMetadataValue>()
+            let auth_token_header = auth_token
+                .parse::<HeaderValue>()
                 .expect("auth_token is a number so it'll always be valid ASCII");
 
-            auth_db.insert(auth_token_metadata_value, username);
+            self.auth_db
+                .write()
+                .await
+                .insert(auth_token_header, username);
 
             Ok(Response::new(AuthenticateResponse { auth_token }))
         } else {
             Err(Status::unauthenticated("Unregistered username"))
+        }
+    }
+}
+
+#[derive(Clone)]
+struct AuthInterceptor {
+    auth_db: AuthDb,
+}
+
+#[tonic::async_trait]
+impl RequestInterceptor for AuthInterceptor {
+    async fn intercept(&self, mut request: HttpRequest<Body>) -> Result<HttpRequest<Body>, Status> {
+        let Some(auth_token) = request.headers().get(AUTH_TOKEN_HEADER) else {
+            return Err(Status::unauthenticated("Missing authentication token"));
+        };
+
+        if let Some(username) = self.auth_db.read().await.get(auth_token) {
+            request.extensions_mut().insert(AuthInfo {
+                username: username.clone(),
+            });
+
+            Ok(request)
+        } else {
+            Err(Status::unauthenticated("Invalid authentication token"))
         }
     }
 }
@@ -183,7 +198,7 @@ struct AuthInfo {
 }
 
 // TODO: Make this a proper database.
-type AuthToken = AsciiMetadataValue;
+type AuthToken = HeaderValue;
 type Username = String;
 type AuthDb = Arc<RwLock<HashMap<AuthToken, Username>>>;
 

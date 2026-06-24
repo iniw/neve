@@ -5,7 +5,7 @@ use std::{
 
 use clap::Parser;
 use neve_protocol::{
-    AUTH_TOKEN_KEY, AuthenticateRequest, AuthenticateResponse, ChatRequest, ChatResponse,
+    AUTH_TOKEN_HEADER, AuthenticateRequest, AuthenticateResponse, ChatRequest, ChatResponse,
     auth_service_client::AuthServiceClient, chat_service_client::ChatServiceClient,
 };
 use tokio::{select, sync::mpsc};
@@ -45,7 +45,7 @@ async fn main() -> anyhow::Result<()> {
     let add_auth_token = move |mut request: Request<()>| {
         request
             .metadata_mut()
-            .insert(AUTH_TOKEN_KEY, auth_token.clone());
+            .insert(AUTH_TOKEN_HEADER, auth_token.clone());
 
         Ok(request)
     };

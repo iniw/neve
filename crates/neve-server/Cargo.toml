@@ -9,6 +9,7 @@ clap.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
 tonic.workspace = true
+tonic-middleware.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
