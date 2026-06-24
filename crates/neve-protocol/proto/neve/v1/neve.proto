@@ -24,6 +24,6 @@ message ChatRequest {
 }
 
 message ChatResponse {
-  string from = 1;
-  string message = 2;
+  string message = 1;
+  string from = 2;
 }

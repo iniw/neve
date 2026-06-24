@@ -39,9 +39,9 @@ async fn main() -> anyhow::Result<()> {
     let auth_db = AuthDb::default();
 
     let auth_server = AuthServer::new(auth_db.clone());
-    let chat_server = ChatServer::new(auth_db.clone());
+    let chat_server = ChatServer::new();
 
-    let check_auth = move |request: Request<()>| {
+    let check_auth = move |mut request: Request<()>| {
         let Some(auth_token) = request.metadata().get(AUTH_TOKEN_KEY) else {
             return Err(Status::unauthenticated("Missing authentication token"));
         };
@@ -50,7 +50,10 @@ async fn main() -> anyhow::Result<()> {
             return Err(Status::internal("Internal lock poisoning"));
         };
 
-        if auth_db.contains_key(auth_token) {
+        if let Some(username) = auth_db.get(auth_token) {
+            request.extensions_mut().insert(AuthInfo {
+                username: username.clone(),
+            });
             Ok(request)
         } else {
             Err(Status::unauthenticated("Invalid authentication token"))
@@ -66,24 +69,16 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-// TODO: Make this a proper database.
-type AuthToken = AsciiMetadataValue;
-type Username = String;
-type AuthDb = Arc<RwLock<HashMap<AuthToken, Username>>>;
-
 struct ChatServer {
-    auth_db: AuthDb,
-
     messages_tx: broadcast::Sender<ChatResponse>,
     messages_rx: broadcast::Receiver<ChatResponse>,
 }
 
 impl ChatServer {
-    fn new(auth_db: AuthDb) -> Self {
+    fn new() -> Self {
         let (messages_tx, messages_rx) = broadcast::channel(128);
 
         Self {
-            auth_db,
             messages_tx,
             messages_rx,
         }
@@ -99,19 +94,11 @@ impl ChatService for ChatServer {
         &self,
         request: Request<tonic::Streaming<ChatRequest>>,
     ) -> Result<Response<Self::ChatStream>, Status> {
-        let Some(auth_token) = request.metadata().get(AUTH_TOKEN_KEY) else {
-            return Err(Status::unauthenticated("Missing authentication token"));
+        let Some(auth_info) = request.extensions().get::<AuthInfo>().cloned() else {
+            return Err(Status::unauthenticated("No authentication info"));
         };
 
-        let Ok(auth_db) = self.auth_db.read() else {
-            return Err(Status::internal("Internal lock poisoning"));
-        };
-
-        let Some(from) = auth_db.get(auth_token).cloned() else {
-            return Err(Status::unauthenticated("Not authenticated"));
-        };
-
-        debug!(connected = ?from);
+        debug!(?auth_info.username, "New connection");
 
         let messages_tx = self.messages_tx.clone();
         tokio::spawn(
@@ -123,15 +110,11 @@ impl ChatService for ChatServer {
                         continue;
                     };
 
+                    let from = auth_info.username.clone();
+
                     debug!(?message, ?from);
 
-                    if messages_tx
-                        .send(ChatResponse {
-                            from: from.clone(),
-                            message,
-                        })
-                        .is_err()
-                    {
+                    if messages_tx.send(ChatResponse { message, from }).is_err() {
                         return;
                     }
                 }
@@ -145,8 +128,6 @@ impl ChatService for ChatServer {
         Ok(Response::new(Box::pin(responses)))
     }
 }
-
-const USER_DB: &[&str] = &["vini", "julia"];
 
 struct AuthServer {
     auth_db: AuthDb,
@@ -195,3 +176,15 @@ impl AuthService for AuthServer {
         }
     }
 }
+
+#[derive(Clone)]
+struct AuthInfo {
+    username: String,
+}
+
+// TODO: Make this a proper database.
+type AuthToken = AsciiMetadataValue;
+type Username = String;
+type AuthDb = Arc<RwLock<HashMap<AuthToken, Username>>>;
+
+const USER_DB: &[&str] = &["vini", "julia"];
