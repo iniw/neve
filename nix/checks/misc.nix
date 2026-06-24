@@ -34,7 +34,7 @@
     nativeBuildInputs = [ typos ];
 
     buildPhase = ''
-      typos
+      typos --diff
 
       touch $out
     '';
