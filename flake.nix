@@ -22,7 +22,10 @@
           inherit (inputs) self;
           inherit pkgs crane;
         };
-        devShells = import ./nix/devshells.nix { inherit pkgs crane checks; };
+
+        devShells = import ./nix/devshells.nix {
+          inherit pkgs crane checks;
+        };
       in
       {
         inherit checks devShells;
