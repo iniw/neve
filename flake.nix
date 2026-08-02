@@ -5,33 +5,47 @@
   };
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    flake-utils.url = "github:numtide/flake-utils";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     crane.url = "github:ipetkov/crane/v0.23.4";
   };
 
   outputs =
     inputs:
-    inputs.flake-utils.lib.eachDefaultSystem (
-      system:
-      let
-        pkgs = import inputs.nixpkgs { inherit system; };
-        crane = inputs.crane.mkLib pkgs;
+    let
+      inherit (inputs.nixpkgs) lib;
 
-        checks = import ./nix/checks.nix {
+      forAllSystems =
+        f:
+        lib.genAttrs lib.systems.flakeExposed (
+          system:
+          let
+            pkgs = inputs.nixpkgs.legacyPackages.${system};
+            crane = inputs.crane.mkLib pkgs;
+          in
+          f { inherit system pkgs crane; }
+        );
+
+      devShells = import ./nix/devShells.nix;
+      checks = import ./nix/checks.nix;
+    in
+    {
+      devShells = forAllSystems (
+        ctx:
+        devShells {
+          inherit (ctx) pkgs crane;
+          checks = inputs.self.checks.${ctx.system};
+        }
+      );
+
+      checks = forAllSystems (
+        ctx:
+        checks {
           inherit (inputs) self;
-          inherit pkgs crane;
-        };
+          inherit (ctx) pkgs crane;
+        }
+      );
 
-        devShells = import ./nix/devshells.nix {
-          inherit pkgs crane checks;
-        };
-      in
-      {
-        inherit checks devShells;
-
-        # Allow easily running a specific check with `nix build .#foo`
-        packages = checks;
-      }
-    );
+      # Allow easily running a specific check with `nix build .#foo`
+      packages = inputs.self.checks;
+    };
 }
