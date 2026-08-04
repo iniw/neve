@@ -24,7 +24,7 @@ in
 {
   toml-lint = run-tombi {
     name = "toml-lint";
-    cmd = "lint --offline";
+    cmd = "lint --offline --error-on-warnings";
   };
 
   toml-fmt = run-tombi {

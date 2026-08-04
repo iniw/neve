@@ -40,9 +40,9 @@ in
       ;
 
     cargoBuildExtraArgs = "--all-targets";
+    cargoTestExtraArgs = "--no-fail-fast";
 
-    # We want to make sure the code builds and runs properly on all CI-tested platforms.
-    passthru.multiPlatform = true;
+    env.RUST_BACKTRACE = "1";
   };
 
   cargo-clippy = crane.cargoClippy {
