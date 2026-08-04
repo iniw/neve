@@ -7,95 +7,86 @@ on:
   pull_request:
 
 jobs:
-  generate-check-matrix:
-    name: Generate check matrix
+  prepare-checks:
+    name: Prepare checks
     runs-on: ubuntu-latest
 
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
+      any-jobs: ${{ steps.matrix.outputs.any-jobs }}
+      manifest-version: ${{ steps.matrix.outputs.manifest-version }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
 
       - name: Install Nix
-        uses: NixOS/nix-installer-action@main
+        uses: NixOS/nix-installer-action@v1
         with:
           extra-conf: |
-            experimental-features = nix-command flakes pipe-operators
+            extra-experimental-features = pipe-operators
 
-      - name: Generate matrix
+      - name: Setup Hestia
+        uses: Mic92/hestia@v3
+
+      - name: Evaluate checks and generate job matrix
         id: matrix
-        run: |
-          {
-            echo "matrix<<EOF"
-            nix eval --impure --json ".#checks" --apply '
-              checks:
-              let
-                lib = (import <nixpkgs> { }).lib;
-
-                checksFor =
-                  system: runner:
-                  checks
-                  |> lib.getAttr system
-                  |> lib.filterAttrs (_: check:
-                    system == "x86_64-linux" || (check.multiPlatform or false)
-                  )
-                  |> lib.mapAttrsToList (check: _: {
-                    inherit check system runner;
-                  });
-              in
-              {
-                include =
-                     checksFor "x86_64-linux" "ubuntu-latest"
-                  ++ checksFor "aarch64-darwin" "macos-latest"
-                     ;
-              }
-            '
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+        uses: Mic92/hestia/matrix@v3
+        with:
+          flake: .#ci
+          nix-eval-jobs: nix run nixpkgs#nix-eval-jobs --
 
   check:
-    name: ${{ matrix.check }} [${{ matrix.system }}]
-    needs: generate-check-matrix
-    runs-on: ${{ matrix.runner }}
+    name: ${{ matrix.name }}
+    needs: prepare-checks
+    if: needs.prepare-checks.outputs.any-jobs == 'true'
+    runs-on: ${{ matrix.os }}
 
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.generate-check-matrix.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.prepare-checks.outputs.matrix) }}
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
       - name: Install Nix
-        uses: NixOS/nix-installer-action@main
+        uses: NixOS/nix-installer-action@v1
 
-      - name: Setup Cachix
-        uses: cachix/cachix-action@v17
+      - name: Setup Hestia
+        uses: Mic92/hestia@v3
         with:
-          name: neve
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          wait-manifest-version: ${{ needs.prepare-checks.outputs.manifest-version }}
 
-      - name: Check
-        run: nix build ".#checks.${{ matrix.system }}.${{ matrix.check }}" --print-build-logs
+      - name: Prefetch derivation closure
+        run: |
+          hashes=$(printf '%s\n' ${{ matrix.installables }} |
+            awk -F/ '{printf "%s%s", (NR > 1 ? "," : ""), substr($NF, 1, 32)}')
+          curl -fsS "http://$HESTIA_LISTEN/closure/$hashes" | nix-store --import
 
-      - name: Collect Nix build logs
+      - name: Build derivations
+        run: nix build ${{ matrix.installables }} --no-link --keep-going --print-build-logs
+
+      - name: Collect build logs
         if: always()
         run: |
-          drv="$(nix eval --raw ".#checks.${{ matrix.system }}.${{ matrix.check }}.drvPath")"
-          log="${{ matrix.check }}.log"
-          {
-            if ! nix log "$drv" 2> /dev/null; then
-              echo "No Nix build log was available for '${{ matrix.check }}'."
-              echo
-              echo "This likely means the derivation was substituted from the cache."
-            fi
-          } > "$log"
+          mkdir logs
 
-      - name: Upload Nix build logs
+          for installable in ${{ matrix.installables }}; do
+            drv="${installable%\^\*}"
+            drv_name="${drv##*/}"
+
+            log="logs/$drv_name.log"
+
+            if ! nix log "$drv" > "$log" 2> /dev/null; then
+              {
+                echo "No Nix build log was available."
+                echo
+                echo "The derivation may not have started, or it may have been substituted after the matrix was generated."
+              } > "$log"
+            fi
+          done
+
+      - name: Upload build logs
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: "Logs for '${{ matrix.check }}' on ${{ matrix.system }}"
-          path: ${{ matrix.check }}.log
+          name: Logs for '${{ matrix.name }}'
+          path: logs

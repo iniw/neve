@@ -1,8 +1,7 @@
 {
   self,
+  pkgs,
   crane,
-  lib,
-  protobuf,
 }:
 let
   # crane automatically appends the "type" of the derivation to as a suffix `pname`:
@@ -17,12 +16,12 @@ let
   # which doesn't append a suffix, so we just set it's name manually.
   pname = "cargo";
 
-  src = lib.cleanSourceWith {
+  src = pkgs.lib.cleanSourceWith {
     src = self;
-    filter = path: type: (crane.filterCargoSources path type) || lib.hasSuffix ".proto" path;
+    filter = path: type: (crane.filterCargoSources path type) || pkgs.lib.hasSuffix ".proto" path;
   };
 
-  nativeBuildInputs = [ protobuf ];
+  nativeBuildInputs = [ pkgs.protobuf ];
 
   # For `crane.buildDepsOnly` crane adds "-deps" to `pname`, so the derivation is called "cargo-deps".
   cargoArtifacts = crane.buildDepsOnly {
@@ -39,10 +38,9 @@ in
       cargoArtifacts
       ;
 
-    cargoBuildExtraArgs = "--all-targets";
+    cargoTestExtraArgs = "--no-fail-fast";
 
-    # We want to make sure the code builds and runs properly on all CI-tested platforms.
-    passthru.multiPlatform = true;
+    env.RUST_BACKTRACE = "1";
   };
 
   cargo-clippy = crane.cargoClippy {
@@ -53,7 +51,7 @@ in
       cargoArtifacts
       ;
 
-    cargoClippyExtraArgs = "--all-targets -- --deny warnings";
+    cargoClippyExtraArgs = "--all-targets --all-features -- --deny warnings";
   };
 
   cargo-fmt = crane.cargoFmt {
