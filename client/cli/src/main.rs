@@ -9,12 +9,13 @@ use tokio_stream::{StreamExt, wrappers::ReceiverStream};
 use tonic::{Request, metadata::AsciiMetadataValue, transport::Channel};
 use tracing::{debug, error, info};
 
-tonic::include_proto!("neve.server.v1");
-
-use auth_service_client::AuthServiceClient;
-use chat_service_client::ChatServiceClient;
-
-const AUTH_TOKEN_HEADER: &str = "auth-token";
+use neve_proto::{
+    AUTH_TOKEN_HEADER,
+    server::{
+        AuthenticateRequest, AuthenticateResponse, ChatRequest, ChatResponse,
+        auth_service_client::AuthServiceClient, chat_service_client::ChatServiceClient,
+    },
+};
 
 #[derive(Parser)]
 struct ClientArgs {
