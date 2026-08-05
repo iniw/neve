@@ -598,14 +598,22 @@ dependencies = [
  "anyhow",
  "async-stream",
  "clap",
- "prost",
+ "neve-proto",
  "tokio",
  "tokio-stream",
  "tonic",
- "tonic-prost",
- "tonic-prost-build",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "neve-proto"
+version = "0.1.0"
+dependencies = [
+ "prost",
+ "tonic",
+ "tonic-prost",
+ "tonic-prost-build",
 ]
 
 [[package]]
@@ -614,13 +622,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "prost",
+ "neve-proto",
  "tokio",
  "tokio-stream",
  "tonic",
  "tonic-middleware",
- "tonic-prost",
- "tonic-prost-build",
  "tracing",
  "tracing-subscriber",
 ]

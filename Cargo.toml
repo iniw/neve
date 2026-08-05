@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
   "client/cli",
+  "proto",
   "server",
 ]
 
@@ -22,3 +23,5 @@ tonic-prost = { version = "0.14" }
 tonic-prost-build = { version = "0.14" }
 tracing = { version = "0.1" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+neve-proto = { path = "proto/" }
