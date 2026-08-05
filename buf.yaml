@@ -1,3 +1,3 @@
 version: v2
 modules:
-  - path: crates/neve-protocol/proto
+  - path: proto/

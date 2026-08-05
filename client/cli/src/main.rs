@@ -4,14 +4,17 @@ use std::{
 };
 
 use clap::Parser;
-use neve_protocol::{
-    AUTH_TOKEN_HEADER, AuthenticateRequest, AuthenticateResponse, ChatRequest, ChatResponse,
-    auth_service_client::AuthServiceClient, chat_service_client::ChatServiceClient,
-};
 use tokio::{select, sync::mpsc};
 use tokio_stream::{StreamExt, wrappers::ReceiverStream};
 use tonic::{Request, metadata::AsciiMetadataValue, transport::Channel};
 use tracing::{debug, error, info};
+
+tonic::include_proto!("neve.server.v1");
+
+use auth_service_client::AuthServiceClient;
+use chat_service_client::ChatServiceClient;
+
+const AUTH_TOKEN_HEADER: &str = "auth-token";
 
 #[derive(Parser)]
 struct ClientArgs {
