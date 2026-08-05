@@ -1,6 +1,9 @@
 [workspace]
 resolver = "3"
-members = ["crates/*"]
+members = [
+  "client/cli",
+  "server",
+]
 
 [workspace.package]
 version = "0.1.0"
@@ -19,5 +22,3 @@ tonic-prost = { version = "0.14" }
 tonic-prost-build = { version = "0.14" }
 tracing = { version = "0.1" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
-neve-protocol = { path = "crates/neve-protocol" }

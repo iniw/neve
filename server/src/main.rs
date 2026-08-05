@@ -1,9 +1,4 @@
 use clap::Parser;
-use neve_protocol::{
-    AUTH_TOKEN_HEADER, AuthenticateRequest, AuthenticateResponse, ChatRequest, ChatResponse,
-    auth_service_server::{AuthService, AuthServiceServer},
-    chat_service_server::{ChatService, ChatServiceServer},
-};
 use std::{
     collections::HashMap,
     pin::Pin,
@@ -22,6 +17,13 @@ use tonic::{
 };
 use tonic_middleware::{InterceptorFor, RequestInterceptor};
 use tracing::{Instrument, debug, info};
+
+tonic::include_proto!("neve.server.v1");
+
+use auth_service_server::{AuthService, AuthServiceServer};
+use chat_service_server::{ChatService, ChatServiceServer};
+
+const AUTH_TOKEN_HEADER: &str = "auth-token";
 
 #[derive(Parser)]
 struct ServerArgs {

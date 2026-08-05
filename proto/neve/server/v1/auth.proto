@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package neve.v1;
+package neve.server.v1;
 
 service AuthService {
   rpc Authenticate(AuthenticateRequest) returns (AuthenticateResponse);
@@ -13,17 +13,4 @@ message AuthenticateRequest {
 message AuthenticateResponse {
   // The token that should be present in the HTTP headers of every request from the client past this point.
   string auth_token = 1;
-}
-
-service ChatService {
-  rpc Chat(stream ChatRequest) returns (stream ChatResponse);
-}
-
-message ChatRequest {
-  string message = 1;
-}
-
-message ChatResponse {
-  string message = 1;
-  string from = 2;
 }
