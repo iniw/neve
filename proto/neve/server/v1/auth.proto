@@ -3,14 +3,34 @@ syntax = "proto3";
 package neve.server.v1;
 
 service AuthService {
+  // Register a user in the server.
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+
+  // Authenticate with the server using information from a registered user.
+  //
+  // This is required to interact with all other services.
   rpc Authenticate(AuthenticateRequest) returns (AuthenticateResponse);
 }
 
-message AuthenticateRequest {
+message RegisterRequest {
+  // The username to register.
   string username = 1;
+
+  // The password to associate with the username.
+  string password = 2;
+}
+
+message RegisterResponse {}
+
+message AuthenticateRequest {
+  // The username to use for authentication.
+  string username = 1;
+
+  // The password to use for authentication.
+  string password = 2;
 }
 
 message AuthenticateResponse {
-  // The token that should be present in the HTTP headers of every request from the client past this point.
+  // The token that should be placed in requests sent to other services.
   string auth_token = 1;
 }
