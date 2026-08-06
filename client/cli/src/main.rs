@@ -11,7 +11,7 @@ use tracing::{debug, error, info};
 
 use neve_proto::{
     AUTH_TOKEN_HEADER,
-    server::{
+    server::v1::{
         AuthenticateRequest, AuthenticateResponse, ChatRequest, ChatResponse,
         auth_service_client::AuthServiceClient, chat_service_client::ChatServiceClient,
     },
@@ -21,6 +21,9 @@ use neve_proto::{
 struct ClientArgs {
     #[arg(long)]
     username: String,
+
+    #[arg(long)]
+    password: String,
 
     #[arg(long)]
     port: u16,
@@ -40,6 +43,7 @@ async fn main() -> anyhow::Result<()> {
             .await?
             .authenticate(tonic::Request::new(AuthenticateRequest {
                 username: args.username,
+                password: args.password,
             }))
             .await?
             .into_inner();

@@ -27,8 +27,8 @@
     name = "proto";
 
     src = pkgs.lib.sourceFilesBySuffices self [
-      "buf.yaml"
       ".proto"
+      "buf.yaml"
     ];
 
     nativeBuildInputs = [ pkgs.buf ];

@@ -10,6 +10,9 @@ let
   # Group for lint checks that don't need their own runner.
   lint = import ./checks/lint.nix { inherit self pkgs; };
 
+  # Group for checks that run against an ephemeral PostgreSQL database.
+  postgres = import ./checks/postgres.nix { inherit self pkgs; };
+
   withGroup =
     groupName: checks:
     checks
@@ -23,4 +26,5 @@ in
 {
   cargo = cargo |> withGroup "Cargo checks";
   lint = lint |> withGroup "Lint checks";
+  postgres = postgres |> withGroup "Postgres checks";
 }

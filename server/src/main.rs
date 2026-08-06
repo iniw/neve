@@ -1,36 +1,29 @@
+use std::pin::Pin;
+
 use clap::Parser;
-use std::{
-    collections::HashMap,
-    pin::Pin,
-    sync::{
-        Arc,
-        atomic::{AtomicU32, Ordering},
-    },
-};
-use tokio::sync::{RwLock, broadcast};
+use sqlx::PgPool;
+use tokio::sync::broadcast;
 use tokio_stream::{Stream, StreamExt, wrappers::BroadcastStream};
-use tonic::{
-    Request, Response, Status,
-    body::Body,
-    codegen::http::{HeaderValue, Request as HttpRequest},
-    transport::Server,
-};
-use tonic_middleware::{InterceptorFor, RequestInterceptor};
+use tonic::{Request, Response, Status, transport::Server};
 use tracing::{Instrument, debug, info};
 
-use neve_proto::{
-    AUTH_TOKEN_HEADER,
-    server::{
-        AuthenticateRequest, AuthenticateResponse, ChatRequest, ChatResponse,
-        auth_service_server::{AuthService, AuthServiceServer},
-        chat_service_server::{ChatService, ChatServiceServer},
-    },
+use neve_proto::server::v1::{
+    ChatRequest, ChatResponse,
+    chat_service_server::{ChatService, ChatServiceServer},
 };
+
+mod auth;
+mod db;
+
+use crate::auth::{AuthInfo, AuthServer};
 
 #[derive(Parser)]
 struct ServerArgs {
     #[arg(long)]
     port: u16,
+
+    #[arg(long, env = "DATABASE_URL")]
+    database_url: String,
 }
 
 #[tokio::main]
@@ -43,22 +36,18 @@ async fn main() -> anyhow::Result<()> {
     let args = ServerArgs::parse();
 
     let addr = format!("[::]:{}", args.port).parse()?;
-
     info!(?addr, "Server starting");
 
-    let auth_db = AuthDb::default();
+    let pool = PgPool::connect(&args.database_url).await?;
+    sqlx::migrate!().run(&pool).await?;
+    info!(?pool, "Connected to database; migrations executed");
 
-    let auth_server = AuthServer::new(auth_db.clone());
-    let chat_server = ChatServer::new();
-
-    let auth_interceptor = AuthInterceptor { auth_db };
+    let auth_server = AuthServer::new(pool.clone());
+    let chat_server = ChatServer::new(pool);
 
     Server::builder()
-        .add_service(AuthServiceServer::new(auth_server))
-        .add_service(InterceptorFor::new(
-            ChatServiceServer::new(chat_server),
-            auth_interceptor,
-        ))
+        .add_service(auth_server.auth_interceptor(ChatServiceServer::new(chat_server)))
+        .add_service(auth_server.service())
         .serve(addr)
         .await?;
 
@@ -66,15 +55,18 @@ async fn main() -> anyhow::Result<()> {
 }
 
 struct ChatServer {
+    db: PgPool,
+
     messages_tx: broadcast::Sender<ChatResponse>,
     messages_rx: broadcast::Receiver<ChatResponse>,
 }
 
 impl ChatServer {
-    fn new() -> Self {
+    fn new(db: PgPool) -> Self {
         let (messages_tx, messages_rx) = broadcast::channel(128);
 
         Self {
+            db,
             messages_tx,
             messages_rx,
         }
@@ -85,16 +77,32 @@ impl ChatServer {
 impl ChatService for ChatServer {
     type ChatStream = Pin<Box<dyn Stream<Item = Result<ChatResponse, Status>> + Send + 'static>>;
 
-    #[tracing::instrument(err, skip_all)]
+    #[tracing::instrument(skip_all, err)]
     async fn chat(
         &self,
         request: Request<tonic::Streaming<ChatRequest>>,
     ) -> Result<Response<Self::ChatStream>, Status> {
-        let Some(auth_info) = request.extensions().get::<AuthInfo>().cloned() else {
-            return Err(Status::unauthenticated("No authentication info"));
-        };
+        let auth_info = request
+            .extensions()
+            .get::<AuthInfo>()
+            .copied()
+            .ok_or(Status::unauthenticated("No authentication info"))?;
 
-        debug!(?auth_info.username, "New connection");
+        debug!(?auth_info.account_id, "New connection");
+
+        let account = sqlx::query!(
+            r#"
+                SELECT username
+                FROM account
+                WHERE id = $1
+                LIMIT 1
+            "#,
+            auth_info.account_id
+        )
+        .fetch_optional(&self.db)
+        .await
+        .map_err(db::error())?
+        .ok_or(Status::not_found("Account not found"))?;
 
         let messages_tx = self.messages_tx.clone();
         tokio::spawn(
@@ -106,7 +114,7 @@ impl ChatService for ChatServer {
                         continue;
                     };
 
-                    let from = auth_info.username.clone();
+                    let from = account.username.clone();
 
                     debug!(?message, ?from);
 
@@ -124,86 +132,3 @@ impl ChatService for ChatServer {
         Ok(Response::new(Box::pin(responses)))
     }
 }
-
-struct AuthServer {
-    auth_db: AuthDb,
-
-    // TODO: Make this an asymmetric key issuer.
-    auth_counter: AtomicU32,
-}
-
-impl AuthServer {
-    fn new(auth_db: AuthDb) -> Self {
-        Self {
-            auth_db,
-            auth_counter: AtomicU32::new(0),
-        }
-    }
-}
-
-#[tonic::async_trait]
-impl AuthService for AuthServer {
-    #[tracing::instrument(err, skip_all)]
-    async fn authenticate(
-        &self,
-        request: Request<AuthenticateRequest>,
-    ) -> Result<Response<AuthenticateResponse>, Status> {
-        let AuthenticateRequest { username } = request.into_inner();
-
-        if USER_DB.contains(&username.as_str()) {
-            let auth_token = self
-                .auth_counter
-                .fetch_add(1, Ordering::Relaxed)
-                .to_string();
-
-            let auth_token_header = auth_token
-                .parse::<HeaderValue>()
-                .expect("auth_token is a number so it'll always be valid ASCII");
-
-            self.auth_db
-                .write()
-                .await
-                .insert(auth_token_header, username);
-
-            Ok(Response::new(AuthenticateResponse { auth_token }))
-        } else {
-            Err(Status::unauthenticated("Unregistered username"))
-        }
-    }
-}
-
-#[derive(Clone)]
-struct AuthInterceptor {
-    auth_db: AuthDb,
-}
-
-#[tonic::async_trait]
-impl RequestInterceptor for AuthInterceptor {
-    async fn intercept(&self, mut request: HttpRequest<Body>) -> Result<HttpRequest<Body>, Status> {
-        let Some(auth_token) = request.headers().get(AUTH_TOKEN_HEADER) else {
-            return Err(Status::unauthenticated("Missing authentication token"));
-        };
-
-        if let Some(username) = self.auth_db.read().await.get(auth_token) {
-            request.extensions_mut().insert(AuthInfo {
-                username: username.clone(),
-            });
-
-            Ok(request)
-        } else {
-            Err(Status::unauthenticated("Invalid authentication token"))
-        }
-    }
-}
-
-#[derive(Clone)]
-struct AuthInfo {
-    username: String,
-}
-
-// TODO: Make this a proper database.
-type AuthToken = HeaderValue;
-type Username = String;
-type AuthDb = Arc<RwLock<HashMap<AuthToken, Username>>>;
-
-const USER_DB: &[&str] = &["vini", "julia"];
