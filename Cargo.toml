@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
   "client/cli",
+  "proto",
   "server",
 ]
 
@@ -12,8 +13,10 @@ edition = "2024"
 [workspace.dependencies]
 anyhow = { version = "1" }
 async-stream = { version = "0.3" }
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 prost = { version = "0.14" }
+rand = { version = "0.10" }
+sqlx = { version = "0.9.0", features = ["postgres", "runtime-tokio"] }
 tokio = { version = "1", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["full"] }
 tonic = { version = "0.14" }
@@ -22,3 +25,8 @@ tonic-prost = { version = "0.14" }
 tonic-prost-build = { version = "0.14" }
 tracing = { version = "0.1" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+neve-proto = { path = "proto/" }
+
+[profile.dev.package.sqlx-macros]
+opt-level = 3

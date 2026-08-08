@@ -1,3 +1,5 @@
+# See https://github.com/Mic92/hestia/blob/7e2b37cec63ebe331ef0e3e6c41e9bc4d2b47487/README.md#build-matrix-eval-once-build-in-parallel
+
 name: CI
 
 on:

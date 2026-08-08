@@ -1,5 +1,5 @@
 [package]
-name = "neve-client"
+name = "neve-cli"
 version.workspace = true
 edition.workspace = true
 
@@ -7,13 +7,10 @@ edition.workspace = true
 anyhow.workspace = true
 async-stream.workspace = true
 clap.workspace = true
-prost.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
 tonic.workspace = true
-tonic-prost.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
-[build-dependencies]
-tonic-prost-build.workspace = true
+neve-proto.workspace = true

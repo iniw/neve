@@ -6,14 +6,12 @@ edition.workspace = true
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
-prost.workspace = true
+sqlx.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
 tonic.workspace = true
 tonic-middleware.workspace = true
-tonic-prost.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
-[build-dependencies]
-tonic-prost-build.workspace = true
+neve-proto.workspace = true
