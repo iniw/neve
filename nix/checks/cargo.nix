@@ -27,6 +27,10 @@ let
 
   nativeBuildInputs = [ pkgs.protobuf ];
 
+  # Wraps the given check in an ephemeral PostgresSQL database.
+  #
+  # Required if the check has to actually compile/check/test the code,
+  # because sqlx needs a live database to analyze the queries and run tests.
   withPostgres =
     check:
     check.overrideAttrs (prevAttrs: {

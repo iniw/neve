@@ -15,3 +15,6 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 
 neve-proto.workspace = true
+
+[dev-dependencies]
+futures.workspace = true
