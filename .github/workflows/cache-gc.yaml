@@ -33,3 +33,5 @@ jobs:
       - name: Run garbage collection
         run: |
           "$HESTIA_BIN" gc ${{ inputs.dry-run && '--dry-run' || '' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
