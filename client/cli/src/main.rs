@@ -12,7 +12,7 @@ use tracing::{debug, error, info};
 use neve_proto::{
     AUTH_TOKEN_HEADER,
     server::v1::{
-        AuthenticateRequest, AuthenticateResponse, ChatRequest, ChatResponse,
+        AuthenticateRequest, AuthenticateResponse, ChatRequest, ChatResponse, RegisterRequest,
         auth_service_client::AuthServiceClient, chat_service_client::ChatServiceClient,
     },
 };
@@ -31,22 +31,28 @@ struct ClientArgs {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::FmtSubscriber::builder()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .without_time()
-        .init();
+    tracing_subscriber::fmt::init();
 
     let args = ClientArgs::parse();
 
-    let AuthenticateResponse { auth_token } =
-        AuthServiceClient::connect(format!("http://[::]:{}", args.port))
-            .await?
-            .authenticate(tonic::Request::new(AuthenticateRequest {
-                username: args.username,
-                password: args.password,
-            }))
-            .await?
-            .into_inner();
+    let endpoint = format!("http://[::]:{}", args.port);
+
+    let mut auth_client = AuthServiceClient::connect(endpoint.clone()).await?;
+
+    _ = auth_client
+        .register(Request::new(RegisterRequest {
+            username: args.username.clone(),
+            password: args.password.clone(),
+        }))
+        .await;
+
+    let AuthenticateResponse { auth_token } = auth_client
+        .authenticate(Request::new(AuthenticateRequest {
+            username: args.username,
+            password: args.password,
+        }))
+        .await?
+        .into_inner();
 
     let auth_token = auth_token.parse::<AsciiMetadataValue>()?;
 
@@ -58,17 +64,16 @@ async fn main() -> anyhow::Result<()> {
         Ok(request)
     };
 
-    let channel = Channel::from_shared(format!("http://[::]:{}", args.port))?
-        .connect()
-        .await?;
-
-    let mut client = ChatServiceClient::with_interceptor(channel, add_auth_token);
+    let mut chat_client = ChatServiceClient::with_interceptor(
+        Channel::from_shared(endpoint)?.connect().await?,
+        add_auth_token,
+    );
 
     let (messages_tx, messages_rx) = mpsc::channel(128);
 
     let requests = ReceiverStream::new(messages_rx).map(|message| ChatRequest { message });
 
-    let mut responses = client.chat(requests).await?.into_inner();
+    let mut responses = chat_client.chat(requests).await?.into_inner();
 
     let (input_tx, mut input_rx) = mpsc::channel(128);
     thread::spawn(move || {

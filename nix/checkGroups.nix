@@ -4,13 +4,13 @@
   crane,
 }:
 let
-  # Group for cargo checks that may take several minutes to complete without a cache.
+  # Checks that build, test and lint the cargo workspace.
   cargo = import ./checks/cargo.nix { inherit self pkgs crane; };
 
-  # Group for lint checks that don't need their own runner.
+  # Miscellaneous lint checks.
   lint = import ./checks/lint.nix { inherit self pkgs; };
 
-  # Group for checks that run against an ephemeral PostgreSQL database.
+  # Postgres linting checks that run against an ephemeral database.
   postgres = import ./checks/postgres.nix { inherit self pkgs; };
 
   withGroup =

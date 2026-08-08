@@ -14,6 +14,7 @@ use tonic::{
     codegen::http::{HeaderValue, Request as HttpRequest},
 };
 use tonic_middleware::{InterceptorFor, RequestInterceptor};
+use tracing::info;
 
 use neve_proto::{
     AUTH_TOKEN_HEADER,
@@ -25,8 +26,8 @@ use neve_proto::{
 
 use crate::db;
 
-type RowId = i64;
-type AuthDb = Arc<RwLock<HashMap<HeaderValue, RowId>>>;
+#[cfg(test)]
+pub mod tests;
 
 pub struct AuthServer {
     db: PgPool,
@@ -60,11 +61,41 @@ impl AuthServer {
 
 #[tonic::async_trait]
 impl AuthService for AuthServer {
+    #[tracing::instrument(skip_all, err)]
     async fn register(
         &self,
-        _request: Request<RegisterRequest>,
+        request: Request<RegisterRequest>,
     ) -> Result<Response<RegisterResponse>, Status> {
-        todo!()
+        let RegisterRequest { username, password } = request.into_inner();
+
+        match sqlx::query!(
+            r#"
+                insert into account (username, password)
+                values ($1, $2)
+                returning id
+            "#,
+            username,
+            password
+        )
+        .fetch_one(&self.db)
+        .await
+        {
+            Ok(account) => {
+                info!(?account, ?username, ?password, "Registered account");
+                Ok(Response::new(RegisterResponse {}))
+            }
+            Err(error) => {
+                let status = if let sqlx::Error::Database(db_error) = &error
+                    && db_error.is_unique_violation()
+                {
+                    Status::already_exists("Username is already registered")
+                } else {
+                    db::error()(error)
+                };
+
+                Err(status)
+            }
+        }
     }
 
     #[tracing::instrument(skip_all, err)]
@@ -76,10 +107,10 @@ impl AuthService for AuthServer {
 
         let account = sqlx::query!(
             r#"
-                SELECT *
-                FROM account
-                WHERE username = $1
-                LIMIT 1
+                select id, password
+                from account
+                where username = $1
+                limit 1
             "#,
             &username
         )
@@ -94,7 +125,7 @@ impl AuthService for AuthServer {
 
         let auth_token = self.auth_id.fetch_add(1, Ordering::Relaxed);
 
-        let auth_token_header = HeaderValue::from_bytes(auth_token.to_ne_bytes().as_slice())
+        let auth_token_header = HeaderValue::from_str(&auth_token.to_string())
             .expect("A u64 is always a valid header value");
 
         self.auth_db
@@ -139,3 +170,6 @@ impl RequestInterceptor for AuthInterceptor {
 pub struct AuthInfo {
     pub account_id: RowId,
 }
+
+type RowId = i64;
+type AuthDb = Arc<RwLock<HashMap<HeaderValue, RowId>>>;

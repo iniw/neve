@@ -4,4 +4,4 @@ pub mod server {
     }
 }
 
-pub const AUTH_TOKEN_HEADER: &str = "auth-token";
+pub const AUTH_TOKEN_HEADER: &str = "neve-auth-token";

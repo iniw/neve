@@ -8,6 +8,7 @@
 
     src = pkgs.lib.sourceFilesBySuffices self [
       ".sql"
+      "postgres-language-server.jsonc"
       "sqlx.toml"
     ];
 
