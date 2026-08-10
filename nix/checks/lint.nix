@@ -1,17 +1,22 @@
 {
   self,
-  pkgs,
+  lib,
+  stdenvNoCC,
+  actionlint,
+  buf,
+  tombi,
+  typos,
 }:
 {
-  actionlint = pkgs.stdenvNoCC.mkDerivation {
+  actionlint = stdenvNoCC.mkDerivation {
     name = "actionlint";
 
-    src = pkgs.lib.cleanSourceWith {
+    src = lib.cleanSourceWith {
       src = self;
-      filter = path: _: pkgs.lib.hasPrefix "${self}/.github" path;
+      filter = path: _: lib.hasPrefix "${self}/.github" path;
     };
 
-    nativeBuildInputs = [ pkgs.actionlint ];
+    nativeBuildInputs = [ actionlint ];
 
     buildPhase = ''
       # actionlint requires a git repository by checking for the existence of a .git folder.
@@ -23,15 +28,15 @@
     '';
   };
 
-  proto = pkgs.stdenvNoCC.mkDerivation {
+  proto = stdenvNoCC.mkDerivation {
     name = "proto";
 
-    src = pkgs.lib.sourceFilesBySuffices self [
+    src = lib.sourceFilesBySuffices self [
       ".proto"
       "buf.yaml"
     ];
 
-    nativeBuildInputs = [ pkgs.buf ];
+    nativeBuildInputs = [ buf ];
 
     buildPhase = ''
       # buf requires a valid $HOME, otherwise it fails with:
@@ -45,12 +50,12 @@
     '';
   };
 
-  toml = pkgs.stdenvNoCC.mkDerivation {
+  toml = stdenvNoCC.mkDerivation {
     name = "toml";
 
-    src = pkgs.lib.sourceFilesBySuffices self [ ".toml" ];
+    src = lib.sourceFilesBySuffices self [ ".toml" ];
 
-    nativeBuildInputs = [ pkgs.tombi ];
+    nativeBuildInputs = [ tombi ];
 
     buildPhase = ''
       tombi lint --offline --error-on-warnings
@@ -60,12 +65,12 @@
     '';
   };
 
-  typos = pkgs.stdenvNoCC.mkDerivation {
+  typos = stdenvNoCC.mkDerivation {
     name = "typos";
 
     src = self;
 
-    nativeBuildInputs = [ pkgs.typos ];
+    nativeBuildInputs = [ typos ];
 
     buildPhase = ''
       typos --diff --sort

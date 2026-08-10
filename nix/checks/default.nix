@@ -5,13 +5,13 @@
 }:
 let
   # Checks that build, test and lint the cargo workspace.
-  cargo = import ./checks/cargo.nix { inherit self pkgs crane; };
+  cargo = pkgs.callPackages ./cargo.nix { inherit self crane; };
 
   # Miscellaneous lint checks.
-  lint = import ./checks/lint.nix { inherit self pkgs; };
+  lint = pkgs.callPackages ./lint.nix { inherit self; };
 
   # Postgres linting checks that run against an ephemeral database.
-  postgres = import ./checks/postgres.nix { inherit self pkgs; };
+  postgres = pkgs.callPackages ./postgres.nix { inherit self; };
 
   withGroup =
     groupName: checks:
@@ -19,7 +19,7 @@ let
     |> pkgs.lib.mapAttrs (
       _: check:
       check.overrideAttrs {
-        meta.hestia.group = "${groupName} @ ${pkgs.stdenv.hostPlatform.system}";
+        meta.hestia.group = "${groupName} @ ${pkgs.stdenvNoCC.hostPlatform.system}";
       }
     );
 in
