@@ -1,7 +1,10 @@
 {
   self,
-  pkgs,
   crane,
+  lib,
+  protobuf,
+  postgresql,
+  sqlx-cli,
 }:
 let
   # crane automatically appends the "type" of the derivation to as a suffix `pname`:
@@ -16,16 +19,14 @@ let
   # which doesn't append a suffix, so we just set it's name manually.
   pname = "cargo";
 
-  src = pkgs.lib.cleanSourceWith {
+  src = lib.cleanSourceWith {
     src = self;
     filter =
       path: type:
-      crane.filterCargoSources path type
-      || pkgs.lib.hasSuffix ".proto" path
-      || pkgs.lib.hasSuffix ".sql" path;
+      crane.filterCargoSources path type || lib.hasSuffix ".proto" path || lib.hasSuffix ".sql" path;
   };
 
-  nativeBuildInputs = [ pkgs.protobuf ];
+  nativeBuildInputs = [ protobuf ];
 
   # Wraps the given check in an ephemeral PostgresSQL database.
   #
@@ -34,13 +35,11 @@ let
   withPostgres =
     check:
     check.overrideAttrs (prevAttrs: {
-      nativeBuildInputs =
-        with pkgs;
-        [
-          postgresql
-          sqlx-cli
-        ]
-        ++ prevAttrs.nativeBuildInputs;
+      nativeBuildInputs = [
+        postgresql
+        sqlx-cli
+      ]
+      ++ prevAttrs.nativeBuildInputs;
 
       preBuild = ''
         export PGDATA="$TMPDIR/postgres"

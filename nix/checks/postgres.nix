@@ -1,18 +1,22 @@
 {
   self,
-  pkgs,
+  lib,
+  stdenvNoCC,
+  postgres-language-server,
+  postgresql,
+  sqlx-cli,
 }:
 {
-  postgres = pkgs.stdenvNoCC.mkDerivation {
+  postgres = stdenvNoCC.mkDerivation {
     name = "postgres";
 
-    src = pkgs.lib.sourceFilesBySuffices self [
+    src = lib.sourceFilesBySuffices self [
       ".sql"
       "postgres-language-server.jsonc"
       "sqlx.toml"
     ];
 
-    nativeBuildInputs = with pkgs; [
+    nativeBuildInputs = [
       postgres-language-server
       postgresql
       sqlx-cli

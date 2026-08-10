@@ -11,39 +11,38 @@
 
       forAllSystems = f: lib.genAttrs lib.systems.flakeExposed (system: f system);
 
-      checkGroupsFor =
+      mkDevShells =
+        system:
+        let
+          pkgs = inputs.nixpkgs.legacyPackages.${system};
+        in
+        pkgs.callPackages ./nix/devShells.nix {
+          checks = inputs.self.checks.${system};
+        };
+
+      mkCheckGroups =
         system:
         let
           pkgs = inputs.nixpkgs.legacyPackages.${system};
           crane = inputs.crane.mkLib pkgs;
         in
-        import ./nix/checkGroups.nix {
+        import ./nix/checks {
           inherit (inputs) self;
           inherit pkgs crane;
         };
     in
     {
-      devShells = forAllSystems (
-        system:
-        let
-          pkgs = inputs.nixpkgs.legacyPackages.${system};
-          crane = inputs.crane.mkLib pkgs;
-        in
-        import ./nix/devShells.nix {
-          inherit pkgs crane;
-          checks = inputs.self.checks.${system};
-        }
-      );
+      devShells = forAllSystems (system: mkDevShells system);
 
-      checks = forAllSystems (system: checkGroupsFor system |> lib.attrValues |> lib.mergeAttrsList);
+      checks = forAllSystems (system: mkCheckGroups system |> lib.attrValues |> lib.mergeAttrsList);
 
       ci = {
         # Linux CI runs all checks from all groups.
-        x86-64_linux = checkGroupsFor "x86_64-linux" |> lib.attrValues |> lib.mergeAttrsList;
+        inherit (inputs.self.checks) x86_64-linux;
 
         # Other platforms run only the "cargo" group's checks, to make sure the code still works.
-        aarch64-darwin = checkGroupsFor "aarch64-darwin" |> lib.getAttr "cargo";
-        aarch64-linux = checkGroupsFor "aarch64-linux" |> lib.getAttr "cargo";
+        aarch64-darwin = mkCheckGroups "aarch64-darwin" |> lib.getAttr "cargo";
+        aarch64-linux = mkCheckGroups "aarch64-linux" |> lib.getAttr "cargo";
       };
 
       # Allow easily running a specific check with `nix build .#foo`

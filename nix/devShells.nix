@@ -1,14 +1,23 @@
 {
-  pkgs,
-  crane,
   checks,
+  lib,
+  mkShell,
+  cargo,
+  clippy,
+  rust-analyzer,
+  rustc,
+  rustfmt,
 }:
 {
-  default = crane.devShell {
-    inherit checks;
+  default = mkShell {
+    inputsFrom = lib.attrValues checks;
 
-    packages = with pkgs; [
+    packages = [
+      cargo
+      clippy
       rust-analyzer
+      rustc
+      rustfmt
     ];
 
     # Setup the DB with:
