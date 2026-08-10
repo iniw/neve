@@ -11,7 +11,7 @@ use neve_proto::server::v1::{
     chat_service_server::{ChatService, ChatServiceServer},
 };
 
-use crate::{auth::AuthInfo, db};
+use crate::{auth::AuthInfo, error};
 
 #[cfg(test)]
 mod tests;
@@ -63,7 +63,7 @@ impl ChatServer {
         )
         .fetch_optional(&self.db)
         .await
-        .map_err(db::error())?
+        .map_err(error::db())?
         .ok_or(Status::not_found("Account not found"))?;
 
         let messages_tx = self.messages_tx.clone();

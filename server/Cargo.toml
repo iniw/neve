@@ -18,3 +18,4 @@ neve-proto.workspace = true
 
 [dev-dependencies]
 futures.workspace = true
+itertools.workspace = true

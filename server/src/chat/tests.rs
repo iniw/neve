@@ -1,6 +1,5 @@
-use std::collections::HashSet;
-
 use futures::future::try_join_all;
+use itertools::Itertools;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
@@ -19,23 +18,21 @@ async fn all_clients_receive_message(db: PgPool) -> anyhow::Result<()> {
         auth_server.generate_account().await?,
     ];
 
-    let mut chat_handles = try_join_all(
+    let mut chat_streams = try_join_all(
         accounts
             .into_iter()
-            .map(|account_id| chat_server.start_chatting(account_id)),
+            .map(|account_id| chat_server.make_chat_stream(account_id)),
     )
     .await?;
 
-    for chatter in 0..chat_handles.len() {
+    for i in 0..chat_streams.len() {
         for message in ["hi", "how you guys doing"] {
-            chat_handles[chatter].send_message(message).await;
+            chat_streams[i].send(message).await;
 
-            let responses =
-                try_join_all(chat_handles.iter_mut().map(ChatHandle::receive_message)).await?;
+            let responses = try_join_all(chat_streams.iter_mut().map(ChatStream::recv)).await?;
 
             // Every client received the same response
-            let unique_responses = responses.into_iter().collect::<HashSet<_>>();
-            assert_eq!(unique_responses.len(), 1);
+            assert!(responses.iter().all_equal())
         }
     }
 
@@ -43,7 +40,7 @@ async fn all_clients_receive_message(db: PgPool) -> anyhow::Result<()> {
 }
 
 impl ChatServer {
-    async fn start_chatting(&self, account_id: i64) -> Result<ChatHandle, Status> {
+    async fn make_chat_stream(&self, account_id: i64) -> Result<ChatStream, Status> {
         let (messages_tx, messages_rx) = mpsc::channel(2);
 
         let mut request = Request::new(
@@ -52,24 +49,24 @@ impl ChatServer {
         request.extensions_mut().insert(AuthInfo { account_id });
         let responses = self.chat(request).await?.into_inner();
 
-        Ok(ChatHandle {
-            messages_tx,
+        Ok(ChatStream {
+            requests: messages_tx,
             responses,
         })
     }
 }
 
-struct ChatHandle {
-    messages_tx: mpsc::Sender<String>,
+struct ChatStream {
+    requests: mpsc::Sender<String>,
     responses: <ChatServer as ChatService>::ChatStream,
 }
 
-impl ChatHandle {
-    pub async fn send_message(&self, message: &str) {
-        self.messages_tx.send(message.to_owned()).await.unwrap()
+impl ChatStream {
+    pub async fn send(&self, message: &str) {
+        self.requests.send(message.to_owned()).await.unwrap()
     }
 
-    pub async fn receive_message(&mut self) -> Result<String, Status> {
+    pub async fn recv(&mut self) -> Result<String, Status> {
         self.responses
             .next()
             .await

@@ -1,7 +1,8 @@
-use std::{collections::HashSet, sync::atomic::AtomicUsize};
+use std::sync::atomic::AtomicUsize;
 
 use anyhow::Context;
 use futures::future::try_join_all;
+use itertools::Itertools;
 use tonic::Code;
 
 use super::*;
@@ -48,10 +49,10 @@ async fn doesnt_authenticate_before_registering(db: PgPool) -> anyhow::Result<()
 }
 
 #[sqlx::test]
-async fn auth_tokens_are_different(db: PgPool) -> anyhow::Result<()> {
+async fn auth_tokens_are_unique(db: PgPool) -> anyhow::Result<()> {
     let server = AuthServer::new(db);
 
-    let usernames = ["hello", "how", "are", "you! :)"];
+    let usernames = ["julia", "vono", "karks", "gui"];
 
     let auth_tokens = try_join_all(usernames.into_iter().map(async |username| {
         server
@@ -69,12 +70,11 @@ async fn auth_tokens_are_different(db: PgPool) -> anyhow::Result<()> {
             .await?
             .into_inner();
 
-        Ok::<String, Status>(auth_token)
+        Ok::<_, Status>(auth_token)
     }))
     .await?;
 
-    let unique_auth_tokens = auth_tokens.iter().collect::<HashSet<_>>();
-    assert_eq!(unique_auth_tokens.len(), auth_tokens.len());
+    assert!(auth_tokens.iter().all_unique());
 
     Ok(())
 }
