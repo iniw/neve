@@ -24,7 +24,7 @@ use neve_proto::{
     },
 };
 
-use crate::db;
+use crate::error;
 
 #[cfg(test)]
 pub mod tests;
@@ -90,7 +90,7 @@ impl AuthService for AuthServer {
                 {
                     Status::already_exists("Username is already registered")
                 } else {
-                    db::error()(error)
+                    error::db()(error)
                 };
 
                 Err(status)
@@ -116,7 +116,7 @@ impl AuthService for AuthServer {
         )
         .fetch_optional(&self.db)
         .await
-        .map_err(db::error())?
+        .map_err(error::db())?
         .ok_or(Status::not_found("Username not found"))?;
 
         if account.password != password {

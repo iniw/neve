@@ -8,7 +8,7 @@ use tracing::info;
 
 mod auth;
 mod chat;
-mod db;
+mod error;
 
 use auth::AuthServer;
 use chat::ChatServer;
