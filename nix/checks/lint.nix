@@ -41,7 +41,7 @@
     buildPhase = ''
       # buf requires a valid $HOME, otherwise it fails with:
       # mkdir /homeless-shelter: operation not permitted
-      export HOME=$(mktemp -d)
+      export HOME=$TMPDIR
 
       buf lint
       buf format --exit-code --diff
@@ -73,7 +73,7 @@
     nativeBuildInputs = [ typos ];
 
     buildPhase = ''
-      typos --diff --sort
+      typos --sort
 
       touch $out
     '';

@@ -143,7 +143,7 @@ async fn interceptor_denies_unautheticated_requests() -> anyhow::Result<()> {
 }
 
 #[sqlx::test]
-async fn interceptor_allows_autheticated_requests() -> anyhow::Result<()> {
+async fn interceptor_allows_authenticated_requests() -> anyhow::Result<()> {
     let auth_token = HeaderValue::from_static("47");
     let account_id = 55;
 
@@ -164,7 +164,7 @@ async fn interceptor_allows_autheticated_requests() -> anyhow::Result<()> {
     let auth_info = request
         .extensions()
         .get::<AuthInfo>()
-        .context("A successfull auth interception should insert `AuthInfo`")?;
+        .context("A successful auth interception should insert `AuthInfo`")?;
 
     assert_eq!(auth_info.account_id, account_id);
 
