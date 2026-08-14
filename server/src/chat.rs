@@ -38,6 +38,8 @@ impl ChatServer {
         ChatServiceServer::new(self)
     }
 
+    /// This function exists purely so that we can call [`ChatService::chat`] on tests without having to build a [`tonic::Streaming`] object.
+    /// See <https://github.com/grpc/grpc-rust/issues/462> for more information on this issue.
     async fn chat<S>(
         &self,
         request: Request<S>,
@@ -54,10 +56,9 @@ impl ChatServer {
 
         let account = sqlx::query!(
             r#"
-                select username
-                from account
-                where id = $1
-                limit 1
+                SELECT username
+                FROM account
+                WHERE id = $1
             "#,
             auth_info.account_id
         )

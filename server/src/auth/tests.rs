@@ -172,7 +172,7 @@ async fn interceptor_allows_authenticated_requests() -> anyhow::Result<()> {
 }
 
 impl AuthServer {
-    pub async fn generate_account(&self) -> Result<i64, Status> {
+    pub async fn generate_account(&self) -> Result<RowId, Status> {
         static GENERATED_ACCOUNT_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
         let generated_account_id = GENERATED_ACCOUNT_COUNTER.fetch_add(1, Ordering::Relaxed);
