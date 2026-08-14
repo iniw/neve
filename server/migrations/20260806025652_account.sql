@@ -1,5 +1,5 @@
-create table if not exists account (
-  id bigint generated always as identity primary key,
-  username text not null unique,
-  password text not null
+CREATE TABLE IF NOT EXISTS account (
+  id int PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  username text NOT NULL UNIQUE,
+  password text NOT NULL
 );

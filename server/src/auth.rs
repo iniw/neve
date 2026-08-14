@@ -23,6 +23,7 @@ use neve_proto::{
         auth_service_server::{AuthService, AuthServiceServer},
     },
 };
+use neve_server::RowId;
 
 use crate::error;
 
@@ -68,34 +69,32 @@ impl AuthService for AuthServer {
     ) -> Result<Response<RegisterResponse>, Status> {
         let RegisterRequest { username, password } = request.into_inner();
 
-        match sqlx::query!(
+        let account = sqlx::query!(
             r#"
-                insert into account (username, password)
-                values ($1, $2)
-                returning id
+                INSERT INTO account (username, password)
+                VALUES ($1, $2)
+                RETURNING id
             "#,
             username,
             password
         )
         .fetch_one(&self.db)
         .await
-        {
-            Ok(account) => {
-                info!(?account, ?username, ?password, "Registered account");
-                Ok(Response::new(RegisterResponse {}))
+        .map_err(|error| {
+            // Specialize the error for username collisions to provide a better error message,
+            // since it's not really an internal error.
+            if let sqlx::Error::Database(db_error) = &error
+                && db_error.is_unique_violation()
+            {
+                Status::already_exists("Username is already registered")
+            } else {
+                error::db()(error)
             }
-            Err(error) => {
-                let status = if let sqlx::Error::Database(db_error) = &error
-                    && db_error.is_unique_violation()
-                {
-                    Status::already_exists("Username is already registered")
-                } else {
-                    error::db()(error)
-                };
+        })?;
 
-                Err(status)
-            }
-        }
+        info!(?account, ?username, ?password, "Registered account");
+
+        Ok(Response::new(RegisterResponse {}))
     }
 
     #[tracing::instrument(skip_all, err)]
@@ -107,10 +106,9 @@ impl AuthService for AuthServer {
 
         let account = sqlx::query!(
             r#"
-                select id, password
-                from account
-                where username = $1
-                limit 1
+                SELECT id, password
+                FROM account
+                WHERE username = $1
             "#,
             &username
         )
@@ -171,5 +169,4 @@ pub struct AuthInfo {
     pub account_id: RowId,
 }
 
-type RowId = i64;
 type AuthDb = Arc<RwLock<HashMap<HeaderValue, RowId>>>;

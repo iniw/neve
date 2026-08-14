@@ -4,6 +4,7 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::auth::AuthServer;
+use neve_server::RowId;
 
 use super::*;
 
@@ -40,7 +41,7 @@ async fn all_clients_receive_message(db: PgPool) -> anyhow::Result<()> {
 }
 
 impl ChatServer {
-    async fn make_chat_stream(&self, account_id: i64) -> Result<ChatStream, Status> {
+    async fn make_chat_stream(&self, account_id: RowId) -> Result<ChatStream, Status> {
         let (messages_tx, messages_rx) = mpsc::channel(2);
 
         let mut request = Request::new(

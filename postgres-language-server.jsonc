@@ -1,4 +1,11 @@
 {
-  "format": { "enabled": true },
-  "pglinter": { "enabled": true },
+  "format": {
+    "enabled": true,
+    "lineWidth": 120,
+    "keywordCase": "upper",
+    "constantCase": "upper"
+  },
+  "pglinter": {
+    "enabled": true
+  },
 }
