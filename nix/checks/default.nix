@@ -4,14 +4,26 @@
   crane,
 }:
 let
+  ephemeralPostgresDbHook = pkgs.makeSetupHook {
+    name = "ephemeral-postgres-db-hook";
+    propagatedBuildInputs = [
+      pkgs.postgresql
+      pkgs.sqlx-cli
+    ];
+  } ./ephemeral-postgres-db-hook.sh;
+
   # Checks that build, test and lint the cargo workspace.
-  cargo = pkgs.callPackages ./cargo.nix { inherit self crane; };
+  cargo = pkgs.callPackages ./cargo.nix {
+    inherit self crane ephemeralPostgresDbHook;
+  };
 
   # Miscellaneous lint checks.
   lint = pkgs.callPackages ./lint.nix { inherit self; };
 
   # Postgres linting checks that run against an ephemeral database.
-  postgres = pkgs.callPackages ./postgres.nix { inherit self; };
+  postgres = pkgs.callPackages ./postgres.nix {
+    inherit self ephemeralPostgresDbHook;
+  };
 
   withGroup =
     groupName: checks:
