@@ -1,42 +1,26 @@
 {
-  self,
-  pkgs,
-  crane,
+  lib,
+  extend,
+  callPackage,
 }:
 let
-  ephemeralPostgresDbHook = pkgs.makeSetupHook {
-    name = "ephemeral-postgres-db-hook";
-    propagatedBuildInputs = [
-      pkgs.postgresql
-      pkgs.sqlx-cli
-    ];
-  } ./ephemeral-postgres-db-hook.sh;
+  ephemeralPostgresDbHook = callPackage ./ephemeralPostgresDbHook { };
 
-  # Checks that build, test and lint the cargo workspace.
-  cargo = pkgs.callPackages ./cargo.nix {
-    inherit self crane ephemeralPostgresDbHook;
-  };
+  pkgs' = extend (
+    final: prev: {
+      inherit ephemeralPostgresDbHook;
+    }
+  );
 
-  # Miscellaneous lint checks.
-  lint = pkgs.callPackages ./lint.nix { inherit self; };
-
-  # Postgres linting checks that run against an ephemeral database.
-  postgres = pkgs.callPackages ./postgres.nix {
-    inherit self ephemeralPostgresDbHook;
-  };
-
-  withGroup =
-    groupName: checks:
-    checks
-    |> pkgs.lib.mapAttrs (
-      _: check:
-      check.overrideAttrs {
-        meta.hestia.group = "${groupName} @ ${pkgs.stdenvNoCC.hostPlatform.system}";
-      }
-    );
+  groups = pkgs'.callPackage ./groups { };
 in
-{
-  cargo = cargo |> withGroup "Cargo checks";
-  lint = lint |> withGroup "Lint checks";
-  postgres = postgres |> withGroup "Postgres checks";
+groups
+// {
+  combined =
+    groups
+    # Using `callPackage` adds `override` functions alongside the check groups
+    # that we don't want to be part of the combined list of checks.
+    |> lib.filterAttrs (_: group: !lib.isFunction group)
+    |> lib.attrValues
+    |> lib.mergeAttrsList;
 }
