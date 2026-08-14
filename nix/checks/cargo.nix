@@ -3,8 +3,7 @@
   crane,
   lib,
   protobuf,
-  postgresql,
-  sqlx-cli,
+  ephemeralPostgresDbHook,
 }:
 let
   # crane automatically appends the "type" of the derivation to as a suffix `pname`:
@@ -26,50 +25,17 @@ let
       crane.filterCargoSources path type || lib.hasSuffix ".proto" path || lib.hasSuffix ".sql" path;
   };
 
-  nativeBuildInputs = [ protobuf ];
+  env = {
+    CARGO_BUILD_WARNINGS = "deny";
+    RUST_BACKTRACE = "1";
+  };
 
-  # Wraps the given check in an ephemeral PostgresSQL database.
-  #
-  # Required if the check has to actually compile/check/test the code,
-  # because sqlx needs a live database to analyze the queries and run tests.
-  withPostgres =
-    check:
-    check.overrideAttrs (prevAttrs: {
-      nativeBuildInputs = [
-        postgresql
-        sqlx-cli
-      ]
-      ++ prevAttrs.nativeBuildInputs;
-
-      preBuild = ''
-        export PGDATA="$TMPDIR/postgres"
-        export PGDATABASE=neve
-        export PGUSER=postgres
-
-        socket="$TMPDIR"
-
-        initdb \
-          --encoding UTF8 \
-          --username "$PGUSER"
-
-        pg_ctl start \
-          --wait \
-          --options "-c listen_addresses= -k $socket"
-
-        trap 'pg_ctl stop --mode immediate || true' EXIT
-
-        # Percent-encode the Unix socket path for SQLx's connection URL.
-        encoded_socket="''${socket//\//%2F}"
-        export DATABASE_URL="postgres://$encoded_socket"
-
-        sqlx database setup
-      '';
-
-      postInstall = ''
-        pg_ctl stop
-        trap - EXIT
-      '';
-    });
+  nativeBuildInputs = [
+    # prost requires protoc to compile the protobuf files.
+    protobuf
+    # SQLx needs a live database to analyze queries and run tests.
+    ephemeralPostgresDbHook
+  ];
 
   # For `crane.buildDepsOnly` crane adds "-deps" to `pname`, so the derivation is called "cargo-deps".
   cargoArtifacts = crane.buildDepsOnly {
@@ -77,47 +43,38 @@ let
   };
 in
 {
-  cargo-build-and-test =
-    crane.buildPackage {
-      pname = "cargo-build-and-test";
+  cargo-build-and-test = crane.buildPackage {
+    pname = "cargo-build-and-test";
 
-      inherit src nativeBuildInputs cargoArtifacts;
+    inherit
+      src
+      env
+      nativeBuildInputs
+      cargoArtifacts
+      ;
+  };
 
-      cargoBuildExtraArgs = "--all-targets";
+  cargo-clippy = crane.cargoClippy {
+    inherit
+      pname
+      src
+      env
+      nativeBuildInputs
+      cargoArtifacts
+      ;
 
-      cargoTestExtraArgs = "--no-fail-fast";
+    cargoClippyExtraArgs = "--all-targets --all-features";
+  };
 
-      env.RUST_BACKTRACE = "1";
-    }
-    |> withPostgres;
-
-  cargo-clippy =
-    crane.cargoClippy {
-      inherit
-        pname
-        src
-        nativeBuildInputs
-        cargoArtifacts
-        ;
-
-      cargoClippyExtraArgs = "--all-targets --all-features -- --deny warnings";
-    }
-    |> withPostgres;
-
-  cargo-doc =
-    crane.cargoDoc {
-      inherit
-        pname
-        src
-        nativeBuildInputs
-        cargoArtifacts
-        ;
-
-      # Rust doesn't offer a nice CLI interface to deny warnings from `cargo doc`.
-      # See: https://github.com/rust-lang/cargo/issues/8424#issuecomment-1070988443
-      env.RUSTDOCFLAGS = "--deny warnings";
-    }
-    |> withPostgres;
+  cargo-doc = crane.cargoDoc {
+    inherit
+      pname
+      src
+      env
+      nativeBuildInputs
+      cargoArtifacts
+      ;
+  };
 
   cargo-fmt = crane.cargoFmt {
     inherit pname src;
