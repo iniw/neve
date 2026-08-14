@@ -9,6 +9,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   prepare-checks:
     name: Prepare checks
@@ -23,7 +27,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      - name: Install Nix
+      - name: Setup Nix
         uses: NixOS/nix-installer-action@v1
         with:
           extra-conf: |
@@ -50,7 +54,7 @@ jobs:
       matrix: ${{ fromJSON(needs.prepare-checks.outputs.matrix) }}
 
     steps:
-      - name: Install Nix
+      - name: Setup Nix
         uses: NixOS/nix-installer-action@v1
 
       - name: Setup Hestia

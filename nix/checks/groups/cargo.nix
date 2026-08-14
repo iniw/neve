@@ -22,7 +22,11 @@ let
     src = self;
     filter =
       path: type:
-      crane.filterCargoSources path type || lib.hasSuffix ".proto" path || lib.hasSuffix ".sql" path;
+      crane.filterCargoSources path type
+      || (lib.any (suffix: lib.hasSuffix suffix path) [
+        ".proto"
+        ".sql"
+      ]);
   };
 
   env = {
@@ -74,6 +78,8 @@ in
       nativeBuildInputs
       cargoArtifacts
       ;
+
+    cargoDocExtraArgs = "--no-deps --bins";
   };
 
   cargo-fmt = crane.cargoFmt {

@@ -9,43 +9,41 @@
     let
       inherit (inputs.nixpkgs) lib;
 
-      forAllSystems = f: lib.genAttrs lib.systems.flakeExposed (system: f system);
+      forAllSystems = f: lib.genAttrs lib.systems.flakeExposed f;
 
-      mkDevShells =
+      checkGroups = forAllSystems (
+        system:
+        let
+          pkgs = inputs.nixpkgs.legacyPackages.${system}.extend (
+            final: prev: {
+              inherit (inputs) self;
+              crane = inputs.crane.mkLib final;
+            }
+          );
+        in
+        pkgs.callPackage ./nix/checks { }
+      );
+    in
+    {
+      checks = forAllSystems (system: checkGroups.${system}.combined);
+
+      ci = lib.mapAttrs (system: group: checkGroups.${system}.${group}) {
+        x86_64-linux = "combined";
+        aarch64-darwin = "cargo";
+        aarch64-linux = "cargo";
+      };
+
+      devShells = forAllSystems (
         system:
         let
           pkgs = inputs.nixpkgs.legacyPackages.${system};
         in
         pkgs.callPackages ./nix/devShells.nix {
           checks = inputs.self.checks.${system};
-        };
+        }
+      );
 
-      mkCheckGroups =
-        system:
-        let
-          pkgs = inputs.nixpkgs.legacyPackages.${system};
-          crane = inputs.crane.mkLib pkgs;
-        in
-        import ./nix/checks {
-          inherit (inputs) self;
-          inherit pkgs crane;
-        };
-    in
-    {
-      devShells = forAllSystems (system: mkDevShells system);
-
-      checks = forAllSystems (system: mkCheckGroups system |> lib.attrValues |> lib.mergeAttrsList);
-
-      ci = {
-        # Linux CI runs all checks from all groups.
-        inherit (inputs.self.checks) x86_64-linux;
-
-        # Other platforms run only the "cargo" group's checks, to make sure the code still works.
-        aarch64-darwin = mkCheckGroups "aarch64-darwin" |> lib.getAttr "cargo";
-        aarch64-linux = mkCheckGroups "aarch64-linux" |> lib.getAttr "cargo";
-      };
-
-      # Allow easily running a specific check with `nix build .#foo`
+      # To easily run a specific check with `nix build .#foo`
       packages = inputs.self.checks;
     };
 }
