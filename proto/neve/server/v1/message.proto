@@ -1,0 +1,99 @@
+syntax = "proto3";
+
+package neve.server.v1;
+
+service MessageService {
+  // Send a message to a chat.
+  rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
+
+  // Get more information about a specific message.
+  rpc GetMessage(GetMessageRequest) returns (GetMessageResponse);
+
+  // Returns the messages that have been sent in a specific chat prior to this point in time.
+  rpc GetPastMessages(GetPastMessagesRequest) returns (stream GetPastMessagesResponse);
+
+  // Returns the new messages sent in a specific chat past this point in time.
+  //
+  // The response stream will stay alive indefinitely, waiting for new messages to be sent, so this request will only
+  // "finish" once the client closes the connection.
+  rpc GetFutureMessages(GetFutureMessagesRequest) returns (stream GetFutureMessagesResponse);
+
+  // A combination of `GetPastMessages` and `GetFutureMessages`.
+  //
+  // This method exists to improve the ergonomics of clients that want to receive both the past and future messages in
+  // a chat, because manually invoking `Get{Past,Future}Messages` for this purpose presents two issues WRT the order of
+  // the calls:
+  //
+  // - `GetFutureMessages` first, then `GetPastMessages`:
+  //
+  //   In this case you may receive more than one response for messages that get sent in between the two calls and will
+  //   have to deal with de-duplicating them yourself.
+  //
+  // - `GetPastMessages` first, then `GetFutureMessages`:
+  //
+  //   In this case you risk losing messages that get sent in between the two calls, and have no way to recover them
+  //   without calling `GetPastMessages` a second time and de-duplicating the responses.
+  //
+  // When using `GetMessages`, the server will handle this problem and the client is guaranteed to receive every past
+  // and future message exactly once.
+  rpc GetMessages(GetMessagesRequest) returns (stream GetMessagesResponse);
+}
+
+message SendMessageRequest {
+  // The chat in which the message should be sent.
+  int32 chat_id = 1;
+
+  // The textual content of the message.
+  string content = 2;
+}
+
+message SendMessageResponse {
+  // The message that was sent.
+  int32 message_id = 1;
+}
+
+message GetMessageRequest {
+  // The message to retrieve information from.
+  int32 message_id = 1;
+}
+
+message GetMessageResponse {
+  // The account that sent the message.
+  int32 account_id = 1;
+
+  // The chat in which the message was sent.
+  int32 chat_id = 2;
+
+  // The textual content of the message.
+  string content = 3;
+}
+
+message GetPastMessagesRequest {
+  // The chat in which to receive messages from.
+  int32 chat_id = 1;
+}
+
+message GetPastMessagesResponse {
+  // The message that was sent.
+  int32 message_id = 1;
+}
+
+message GetFutureMessagesRequest {
+  // The chat in which to receive messages from.
+  int32 chat_id = 1;
+}
+
+message GetFutureMessagesResponse {
+  // The message that was sent.
+  int32 message_id = 1;
+}
+
+message GetMessagesRequest {
+  // The chat in which to receive messages from.
+  int32 chat_id = 1;
+}
+
+message GetMessagesResponse {
+  // The message that was sent.
+  int32 message_id = 1;
+}

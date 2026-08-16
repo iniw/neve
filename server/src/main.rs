@@ -9,9 +9,12 @@ use tracing::info;
 mod auth;
 mod chat;
 mod error;
+mod message;
 
 use auth::AuthServer;
 use chat::ChatServer;
+
+use crate::message::MessageServer;
 
 #[derive(Parser)]
 struct ServerArgs {
@@ -38,10 +41,12 @@ async fn main() -> anyhow::Result<()> {
     info!(?pool, "Ran database migrations");
 
     let auth_server = AuthServer::new(pool.clone());
-    let chat_server = ChatServer::new(pool);
+    let chat_server = ChatServer::new(pool.clone());
+    let message_server = MessageServer::new(pool);
 
     let server = Server::builder()
         .add_service(auth_server.interceptor(chat_server.service()))
+        .add_service(auth_server.interceptor(message_server.service()))
         .add_service(auth_server.service());
 
     let mut sigterm = signal(SignalKind::terminate())?;

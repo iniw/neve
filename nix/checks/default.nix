@@ -1,20 +1,18 @@
 {
+  pkgs,
   lib,
-  extend,
   callPackage,
 }:
 let
-  ephemeralPostgresDbHook = callPackage ./ephemeralPostgresDbHook { };
-
-  pkgs' = extend (
+  pkgs' = pkgs.extend (
     final: prev: {
-      inherit ephemeralPostgresDbHook;
+      ephemeralPostgresDbHook = callPackage ./ephemeralPostgresDbHook { };
     }
   );
 
   groups =
     pkgs'.callPackage ./groups { }
-    # Using `callPackage` adds extra callable attributes alongside the check groups that we don't care about.
+    # Using `callPackage` adds extra callable attributes (`override` et al.) that shouldn't be presented as a group.
     |> lib.filterAttrs (_: group: !lib.isFunction group);
 in
 groups

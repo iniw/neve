@@ -3,14 +3,33 @@ syntax = "proto3";
 package neve.server.v1;
 
 service ChatService {
-  rpc Chat(stream ChatRequest) returns (stream ChatResponse);
+  // Create a chat with the given participants.
+  rpc CreateChat(CreateChatRequest) returns (CreateChatResponse);
+
+  // Obtains the list of chats that a specific account is participating in.
+  rpc GetChats(GetChatsRequest) returns (stream GetChatsResponse);
 }
 
-message ChatRequest {
-  string message = 1;
+message CreateChatRequest {
+  // The IDs of the accounts that should be added to the chat.
+  //
+  // Doesn't include the creator of the chat, that is, the account performing the request.
+  // That information should be retrieved from the request's authentication metadata.
+  repeated int32 participants = 1;
+
+  // The name of the chat.
+  //
+  // If absent, will default to the names of all participants joined together.
+  optional string name = 2;
 }
 
-message ChatResponse {
-  string message = 1;
-  string from = 2;
+message CreateChatResponse {
+  // The chat that was created.
+  int32 chat_id = 1;
+}
+
+message GetChatsRequest {}
+
+message GetChatsResponse {
+  int32 chat_id = 1;
 }

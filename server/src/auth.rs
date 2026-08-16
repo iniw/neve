@@ -14,7 +14,7 @@ use tonic::{
     codegen::http::{HeaderValue, Request as HttpRequest},
 };
 use tonic_middleware::{InterceptorFor, RequestInterceptor};
-use tracing::info;
+use tracing::{Level, info, instrument};
 
 use neve_proto::{
     AUTH_TOKEN_HEADER,
@@ -30,10 +30,14 @@ use crate::error;
 #[cfg(test)]
 pub mod tests;
 
+#[derive(derive_more::Debug)]
 pub struct AuthServer {
+    #[debug(skip)]
     db: PgPool,
 
+    #[debug(skip)]
     auth_db: AuthDb,
+
     auth_id: AtomicU64,
 }
 
@@ -50,6 +54,7 @@ impl AuthServer {
         AuthServiceServer::new(self)
     }
 
+    /// Wraps the given service in the [`AuthInterceptor`] interceptor.
     pub fn interceptor<S>(&self, service: S) -> InterceptorFor<S, AuthInterceptor> {
         InterceptorFor::new(
             service,
@@ -62,7 +67,7 @@ impl AuthServer {
 
 #[tonic::async_trait]
 impl AuthService for AuthServer {
-    #[tracing::instrument(skip_all, err)]
+    #[instrument(err)]
     async fn register(
         &self,
         request: Request<RegisterRequest>,
@@ -88,7 +93,7 @@ impl AuthService for AuthServer {
             {
                 Status::already_exists("Username is already registered")
             } else {
-                error::db()(error)
+                error::db(error)
             }
         })?;
 
@@ -97,7 +102,7 @@ impl AuthService for AuthServer {
         Ok(Response::new(RegisterResponse {}))
     }
 
-    #[tracing::instrument(skip_all, err)]
+    #[instrument(err)]
     async fn authenticate(
         &self,
         request: Request<AuthenticateRequest>,
@@ -114,7 +119,7 @@ impl AuthService for AuthServer {
         )
         .fetch_optional(&self.db)
         .await
-        .map_err(error::db())?
+        .map_err(error::db)?
         .ok_or(Status::not_found("Username not found"))?;
 
         if account.password != password {
@@ -137,13 +142,22 @@ impl AuthService for AuthServer {
     }
 }
 
-#[derive(Clone)]
+/// An [interceptor](tonic_middleware::RequestInterceptor) that ensures every HTTP request received contains valid
+/// authentication metadata, presumably obtained through the [`AuthService::authenticate`] RPC method.
+///
+/// Requests with missing/invalid credentials will fail with status code [`Unauthenticated`](tonic::Code::Unauthenticated).
+///
+/// Requests with valid credentials will be augmented with [authentication-related information](`AuthInfo`) that the RPC
+/// handler can use to determine which account performed the request.
+#[derive(Clone, derive_more::Debug)]
 pub struct AuthInterceptor {
+    #[debug(skip)]
     auth_db: AuthDb,
 }
 
 #[tonic::async_trait]
 impl RequestInterceptor for AuthInterceptor {
+    #[instrument(level = Level::TRACE, err(level = Level::INFO))]
     async fn intercept(&self, mut request: HttpRequest<Body>) -> Result<HttpRequest<Body>, Status> {
         let auth_token = request
             .headers()
@@ -164,9 +178,22 @@ impl RequestInterceptor for AuthInterceptor {
     }
 }
 
+/// Authentication-related information that [`AuthInterceptor`] adds to every correctly authenticated [`Request`].
 #[derive(Clone, Copy)]
 pub struct AuthInfo {
+    /// The ID of the account that performed the request.
     pub account_id: RowId,
+}
+
+impl AuthInfo {
+    /// Obtains the [`AuthInfo`] stored in a [`Request`]'s [`Extensions`](tonic::Extensions) by [`AuthInterceptor`].
+    pub fn from_request<T>(request: &Request<T>) -> Result<Self, Status> {
+        request
+            .extensions()
+            .get::<Self>()
+            .copied()
+            .ok_or(Status::unauthenticated("No authentication info"))
+    }
 }
 
 type AuthDb = Arc<RwLock<HashMap<HeaderValue, RowId>>>;

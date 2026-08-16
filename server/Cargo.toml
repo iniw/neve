@@ -6,6 +6,8 @@ edition.workspace = true
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+derive_more.workspace = true
+itertools.workspace = true
 sqlx.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
@@ -18,4 +20,3 @@ neve-proto.workspace = true
 
 [dev-dependencies]
 futures.workspace = true
-itertools.workspace = true

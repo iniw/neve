@@ -6,7 +6,11 @@ fn main() -> io::Result<()> {
     let server = proto.join("server/v1");
 
     tonic_prost_build::configure().compile_protos(
-        &[server.join("auth.proto"), server.join("chat.proto")],
+        &[
+            server.join("auth.proto"),
+            server.join("chat.proto"),
+            server.join("message.proto"),
+        ],
         &[proto],
     )
 }

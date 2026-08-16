@@ -3,10 +3,10 @@ syntax = "proto3";
 package neve.server.v1;
 
 service AuthService {
-  // Register a user in the server.
+  // Register an account in the server.
   rpc Register(RegisterRequest) returns (RegisterResponse);
 
-  // Authenticate with the server using information from a registered user.
+  // Authenticate with the server using information from a registered account.
   //
   // This is required to interact with all other services.
   rpc Authenticate(AuthenticateRequest) returns (AuthenticateResponse);
