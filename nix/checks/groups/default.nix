@@ -7,9 +7,6 @@
   # Cargo workspace checks.
   cargo = callPackages ./cargo.nix { };
 
-  # Postgres migrations checks.
-  postgres = callPackages ./postgres.nix { };
-
   # Miscellaneous linting checks.
   lint = callPackages ./lint.nix { };
 }

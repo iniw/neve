@@ -37,7 +37,7 @@ let
   nativeBuildInputs = [
     # prost requires protoc to compile the protobuf files.
     protobuf
-    # SQLx needs a live database to analyze queries and run tests.
+    # sqlx needs a live database to analyze queries and run tests.
     ephemeralPostgresDbHook
   ];
 
@@ -66,8 +66,6 @@ in
       nativeBuildInputs
       cargoArtifacts
       ;
-
-    cargoClippyExtraArgs = "--all-targets --all-features";
   };
 
   cargo-doc = crane.cargoDoc {

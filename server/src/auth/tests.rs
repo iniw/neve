@@ -128,7 +128,7 @@ async fn usernames_are_unique(db: PgPool) -> anyhow::Result<()> {
 }
 
 #[sqlx::test]
-async fn interceptor_denies_unautheticated_requests() -> anyhow::Result<()> {
+async fn interceptor_denies_unauthenticated_requests() -> anyhow::Result<()> {
     let interceptor = AuthInterceptor {
         auth_db: AuthDb::default(),
     };
@@ -203,5 +203,15 @@ impl AuthServer {
             .expect("A successful authentication always inserts the account ID");
 
         Ok(account_id)
+    }
+}
+
+impl AuthInfo {
+    /// Creates a [`Request`] with synthetic [`AuthInfo`] containing the given `account_id`, making it look like it was
+    /// requested by that account through the normal [`AuthInterceptor`] flow.
+    pub fn request_from<T>(account_id: RowId, value: T) -> Request<T> {
+        let mut request = Request::new(value);
+        request.extensions_mut().insert(AuthInfo { account_id });
+        request
     }
 }

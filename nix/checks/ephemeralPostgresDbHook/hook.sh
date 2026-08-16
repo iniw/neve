@@ -4,17 +4,13 @@ ephemeralPostgresDbHookStart() {
   export PGHOST="$TMPDIR"
   export PGUSER=postgres
 
-  initdb \
-    --encoding UTF8 \
-    --username "$PGUSER"
+  initdb --encoding UTF8 --username "$PGUSER"
 
-  pg_ctl start \
-    --wait \
-    --options "-c listen_addresses= -k $PGHOST"
+  pg_ctl start --wait --options "-c listen_addresses= -k $PGHOST"
 
   failureHooks+=(ephemeralPostgresDbHookStop)
 
-  # Percent-encode the Unix socket path for SQLx's connection URL.
+  # Percent-encode the Unix socket path for sqlx's connection URL.
   local encoded_socket="${PGHOST//\//%2F}"
   export DATABASE_URL="postgres://$encoded_socket"
 

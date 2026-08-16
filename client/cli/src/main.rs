@@ -1,20 +1,10 @@
-use std::{
-    io::{self, BufRead},
-    thread,
-};
-
 use clap::Parser;
-use tokio::{select, sync::mpsc};
-use tokio_stream::{StreamExt, wrappers::ReceiverStream};
-use tonic::{Request, metadata::AsciiMetadataValue, transport::Channel};
-use tracing::{debug, error, info};
+use tonic::Request;
+use tracing::info;
 
-use neve_proto::{
-    AUTH_TOKEN_HEADER,
-    server::v1::{
-        AuthenticateRequest, AuthenticateResponse, ChatRequest, ChatResponse, RegisterRequest,
-        auth_service_client::AuthServiceClient, chat_service_client::ChatServiceClient,
-    },
+use neve_proto::server::v1::{
+    AuthenticateRequest, AuthenticateResponse, RegisterRequest,
+    auth_service_client::AuthServiceClient,
 };
 
 #[derive(Parser)]
@@ -54,74 +44,7 @@ async fn main() -> anyhow::Result<()> {
         .await?
         .into_inner();
 
-    let auth_token = auth_token.parse::<AsciiMetadataValue>()?;
-
-    let add_auth_token = move |mut request: Request<()>| {
-        request
-            .metadata_mut()
-            .insert(AUTH_TOKEN_HEADER, auth_token.clone());
-
-        Ok(request)
-    };
-
-    let mut chat_client = ChatServiceClient::with_interceptor(
-        Channel::from_shared(endpoint)?.connect().await?,
-        add_auth_token,
-    );
-
-    let (messages_tx, messages_rx) = mpsc::channel(128);
-
-    let requests = ReceiverStream::new(messages_rx).map(|message| ChatRequest { message });
-
-    let mut responses = chat_client.chat(requests).await?.into_inner();
-
-    let (input_tx, mut input_rx) = mpsc::channel(128);
-    thread::spawn(move || {
-        let mut stdin = io::stdin().lock();
-
-        loop {
-            let mut input = String::new();
-
-            match stdin.read_line(&mut input) {
-                Ok(0) => break,
-                Ok(_) => {
-                    // Strip newline.
-                    input.pop();
-
-                    if input_tx.blocking_send(input).is_err() {
-                        break;
-                    }
-                }
-                Err(err) => {
-                    error!(?err, "Error reading stdin");
-                }
-            }
-        }
-    });
-
-    loop {
-        select! {
-            response = responses.next() => match response {
-                Some(response) => {
-                    if let Ok(ChatResponse { message, from }) = response {
-                        debug!(?message, ?from);
-                    }
-                }
-                None => break,
-            },
-            input = input_rx.recv() => match input {
-                Some(input) => {
-                    if messages_tx.send(input).await.is_err() {
-                        info!("Receiving channel closed, exiting");
-                        break;
-                    }
-                }
-                None => break,
-            }
-        }
-    }
-
-    info!("Connection closed");
+    info!(?auth_token, "Authenticated");
 
     Ok(())
 }

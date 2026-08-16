@@ -1,13 +1,14 @@
 use std::pin::Pin;
 
+use itertools::Itertools;
 use sqlx::PgPool;
-use tokio::sync::broadcast;
-use tokio_stream::{Stream, StreamExt, wrappers::BroadcastStream};
+use tokio::sync::mpsc;
+use tokio_stream::{StreamExt, wrappers::ReceiverStream};
 use tonic::{Request, Response, Status};
-use tracing::{Instrument, debug};
+use tracing::{Instrument, instrument};
 
 use neve_proto::server::v1::{
-    ChatRequest, ChatResponse,
+    CreateChatRequest, CreateChatResponse, GetChatsRequest, GetChatsResponse,
     chat_service_server::{ChatService, ChatServiceServer},
 };
 
@@ -16,72 +17,123 @@ use crate::{auth::AuthInfo, error};
 #[cfg(test)]
 mod tests;
 
+#[derive(derive_more::Debug)]
 pub struct ChatServer {
+    #[debug(skip)]
     db: PgPool,
-
-    messages_tx: broadcast::Sender<ChatResponse>,
-    messages_rx: broadcast::Receiver<ChatResponse>,
 }
 
 impl ChatServer {
     pub fn new(db: PgPool) -> Self {
-        let (messages_tx, messages_rx) = broadcast::channel(128);
-
-        Self {
-            db,
-            messages_tx,
-            messages_rx,
-        }
+        Self { db }
     }
 
     pub fn service(self) -> ChatServiceServer<Self> {
         ChatServiceServer::new(self)
     }
+}
 
-    /// This function exists purely so that we can call [`ChatService::chat`] on tests without having to build a [`tonic::Streaming`] object.
-    /// See <https://github.com/grpc/grpc-rust/issues/462> for more information on this issue.
-    async fn chat<S>(
+#[tonic::async_trait]
+impl ChatService for ChatServer {
+    #[instrument(err)]
+    async fn create_chat(
         &self,
-        request: Request<S>,
-    ) -> Result<Response<<Self as ChatService>::ChatStream>, Status>
-    where
-        S: Stream<Item = Result<ChatRequest, Status>> + Send + Unpin + 'static,
-    {
-        let auth_info = request
-            .extensions()
-            .get::<AuthInfo>()
-            .ok_or(Status::unauthenticated("No authentication info"))?;
+        request: Request<CreateChatRequest>,
+    ) -> Result<Response<CreateChatResponse>, Status> {
+        let AuthInfo { account_id } = AuthInfo::from_request(&request)?;
 
-        debug!(?auth_info.account_id, "New connection");
+        let CreateChatRequest {
+            mut participants,
+            name,
+        } = request.into_inner();
 
-        let account = sqlx::query!(
+        // The creator of the chat is itself a participant
+        participants.push(account_id);
+
+        let mut tx = self.db.begin().await.map_err(error::db)?;
+
+        let name = if let Some(name) = name {
+            name
+        } else {
+            let records = sqlx::query!(
+                r#"
+                    SELECT username
+                    FROM account
+                    WHERE id = ANY ($1)
+                    LIMIT 5
+                "#,
+                &participants,
+            )
+            .fetch_all(tx.as_mut())
+            .await
+            .map_err(error::db)?;
+
+            records.into_iter().map(|record| record.username).join(", ")
+        };
+
+        let chat = sqlx::query!(
             r#"
-                SELECT username
-                FROM account
-                WHERE id = $1
+                INSERT INTO chat (name)
+                VALUES ($1)
+                RETURNING id
             "#,
-            auth_info.account_id
+            name
         )
-        .fetch_optional(&self.db)
+        .fetch_one(tx.as_mut())
         .await
-        .map_err(error::db())?
-        .ok_or(Status::not_found("Account not found"))?;
+        .map_err(error::db)?;
 
-        let messages_tx = self.messages_tx.clone();
+        for account_id in participants {
+            sqlx::query!(
+                r#"
+                    INSERT INTO chat_account (chat_id, account_id)
+                    VALUES ($1, $2)
+                "#,
+                chat.id,
+                account_id
+            )
+            .execute(tx.as_mut())
+            .await
+            .map_err(error::db)?;
+        }
+
+        tx.commit().await.map_err(error::db)?;
+
+        Ok(Response::new(CreateChatResponse { chat_id: chat.id }))
+    }
+
+    type GetChatsStream = Pin<Box<ReceiverStream<Result<GetChatsResponse, Status>>>>;
+
+    #[instrument(err)]
+    async fn get_chats(
+        &self,
+        request: Request<GetChatsRequest>,
+    ) -> Result<Response<Self::GetChatsStream>, Status> {
+        let AuthInfo { account_id } = AuthInfo::from_request(&request)?;
+
+        let db = self.db.clone();
+        let (responses_tx, responses_rx) = mpsc::channel(10);
         tokio::spawn(
             async move {
-                let mut request_stream = request.into_inner();
+                let mut results = sqlx::query!(
+                    r#"
+                        SELECT chat_id
+                        FROM chat_account
+                        WHERE account_id = $1
+                    "#,
+                    account_id
+                )
+                .fetch(&db);
 
-                while let Some(request) = request_stream.next().await {
-                    let Ok(ChatRequest { message }) = request else {
-                        continue;
+                while let Some(result) = results.next().await {
+                    let response = match result {
+                        Ok(record) => Ok(GetChatsResponse {
+                            chat_id: record.chat_id,
+                        }),
+                        Err(error) => Err(error::db(error)),
                     };
 
-                    let from = account.username.clone();
-
-                    debug!(?message, ?from);
-
-                    if messages_tx.send(ChatResponse { message, from }).is_err() {
+                    if responses_tx.send(response).await.is_err() {
                         return;
                     }
                 }
@@ -89,22 +141,6 @@ impl ChatServer {
             .in_current_span(),
         );
 
-        let responses = BroadcastStream::new(self.messages_rx.resubscribe())
-            .map(|message| message.map_err(|_| Status::internal("Server closed")));
-
-        Ok(Response::new(Box::pin(responses)))
-    }
-}
-
-#[tonic::async_trait]
-impl ChatService for ChatServer {
-    type ChatStream = Pin<Box<dyn Stream<Item = Result<ChatResponse, Status>> + Send + 'static>>;
-
-    #[tracing::instrument(skip_all, err)]
-    async fn chat(
-        &self,
-        request: Request<tonic::Streaming<ChatRequest>>,
-    ) -> Result<Response<Self::ChatStream>, Status> {
-        self.chat(request).await
+        Ok(Response::new(Box::pin(ReceiverStream::new(responses_rx))))
     }
 }
