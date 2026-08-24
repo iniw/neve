@@ -13,23 +13,35 @@ mod message;
 
 use auth::AuthServer;
 use chat::ChatServer;
+use tracing_subscriber::{EnvFilter, util::SubscriberInitExt};
 
 use crate::message::MessageServer;
 
 #[derive(Parser)]
 struct ServerArgs {
-    #[arg(long)]
+    /// The port in which the server will listen on.
+    #[arg(long, env = "SERVER_PORT")]
     port: u16,
 
+    /// The filter to use for the server's tracing events.
+    ///
+    /// See <https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html#directives> for
+    /// the syntax definition.
+    #[arg(long, env = "SERVER_TRACING_FILTER")]
+    tracing_filter: Option<String>,
+
+    /// The connection string that the server will use to connect to the database.
+    ///
+    /// See <https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNSTRING> for the syntax definition.
     #[arg(long, env = "DATABASE_URL")]
     database_url: String,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
-
     let args = ServerArgs::parse();
+
+    init_tracing(args.tracing_filter.as_deref());
 
     let addr = SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), args.port);
     info!(?addr, "Server starting");
@@ -65,4 +77,13 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn init_tracing(filter: Option<&str>) {
+    let env_filter = EnvFilter::builder().parse_lossy(filter.unwrap_or_default());
+
+    tracing_subscriber::fmt()
+        .with_env_filter(env_filter)
+        .finish()
+        .init()
 }
