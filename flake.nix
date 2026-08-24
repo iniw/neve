@@ -1,7 +1,7 @@
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
-    crane.url = "github:ipetkov/crane/v0.23.4";
+    crane.url = "github:ipetkov/crane/v0.24.0";
   };
 
   outputs =
