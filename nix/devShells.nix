@@ -2,22 +2,14 @@
   checks,
   lib,
   mkShell,
-  cargo,
-  clippy,
   rust-analyzer,
-  rustc,
-  rustfmt,
 }:
 {
   default = mkShell {
     inputsFrom = lib.attrValues checks;
 
     packages = [
-      cargo
-      clippy
       rust-analyzer
-      rustc
-      rustfmt
     ];
 
     # Setup the DB with:
