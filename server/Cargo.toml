@@ -9,6 +9,7 @@ clap.workspace = true
 derive_more.workspace = true
 itertools.workspace = true
 sqlx.workspace = true
+thiserror.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
 tonic.workspace = true

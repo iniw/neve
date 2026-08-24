@@ -1,6 +1,5 @@
 use std::{num::ParseIntError, pin::Pin, str::FromStr};
 
-use itertools::Itertools;
 use neve_proto::server::v1::{
     GetFutureMessagesRequest, GetFutureMessagesResponse, GetMessageRequest, GetMessageResponse,
     GetMessagesRequest, GetMessagesResponse, GetPastMessagesRequest, GetPastMessagesResponse,
@@ -9,6 +8,7 @@ use neve_proto::server::v1::{
 };
 
 use sqlx::{PgPool, postgres::PgListener};
+use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio_stream::{Stream, StreamExt, wrappers::ReceiverStream};
 use tonic::{Request, Response, Status};
@@ -57,12 +57,12 @@ impl MessageServer {
             match result.and_then(|notification| {
                 notification
                     .payload()
-                    .parse::<ChatMessage>()
+                    .parse::<NewMessageNotification>()
                     .map_err(|error| sqlx::Error::InvalidArgument(error.to_string()))
             }) {
-                Ok(chat_message) => {
-                    if chat_message.chat_id == chat_id {
-                        Some(Ok(chat_message.message_id))
+                Ok(new_message) => {
+                    if new_message.chat_id == chat_id {
+                        Some(Ok(new_message.message_id))
                     } else {
                         None
                     }
@@ -286,21 +286,34 @@ impl MessageService for MessageServer {
     }
 }
 
-#[derive(Clone, Copy)]
-struct ChatMessage {
+struct NewMessageNotification {
     chat_id: RowId,
     message_id: RowId,
 }
 
-impl FromStr for ChatMessage {
-    type Err = ParseIntError;
+impl FromStr for NewMessageNotification {
+    type Err = NewMessageNotificationParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let ids: Vec<i32> = s.split(',').map(str::parse).try_collect()?;
+        let mut ids = s.split(',').map(str::parse);
+        let mut next_id = || {
+            ids.next()
+                .ok_or(NewMessageNotificationParseError::InvalidNumberOfIds)?
+                .map_err(NewMessageNotificationParseError::InvalidId)
+        };
 
         Ok(Self {
-            chat_id: ids[0],
-            message_id: ids[1],
+            chat_id: next_id()?,
+            message_id: next_id()?,
         })
     }
+}
+
+#[derive(Debug, Error)]
+enum NewMessageNotificationParseError {
+    #[error("Got an invalid row ID from postgres: {0}")]
+    InvalidId(ParseIntError),
+
+    #[error("Got an number of row ID from postgres")]
+    InvalidNumberOfIds,
 }

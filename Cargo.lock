@@ -1104,6 +1104,7 @@ dependencies = [
  "itertools 0.15.0",
  "neve-proto",
  "sqlx",
+ "thiserror",
  "tokio",
  "tokio-stream",
  "tonic",
