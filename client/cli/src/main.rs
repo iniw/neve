@@ -1,12 +1,12 @@
 use clap::Parser;
 use tonic::Request;
-use tracing::info;
+use tracing::{info, level_filters::LevelFilter};
 
 use neve_proto::server::v1::{
     AuthenticateRequest, AuthenticateResponse, RegisterRequest,
     auth_service_client::AuthServiceClient,
 };
-use tracing_subscriber::{EnvFilter, util::SubscriberInitExt};
+use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan, util::SubscriberInitExt};
 
 #[derive(Parser)]
 struct ClientArgs {
@@ -61,9 +61,13 @@ async fn main() -> anyhow::Result<()> {
 }
 
 fn init_tracing(filter: Option<&str>) {
-    let env_filter = EnvFilter::builder().parse_lossy(filter.unwrap_or_default());
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .parse_lossy(filter.unwrap_or_default());
+
     tracing_subscriber::fmt()
         .with_env_filter(env_filter)
+        .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
         .finish()
         .init()
 }

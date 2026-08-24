@@ -4,7 +4,7 @@ use clap::Parser;
 use sqlx::PgPool;
 use tokio::signal::unix::{SignalKind, signal};
 use tonic::transport::Server;
-use tracing::info;
+use tracing::{info, level_filters::LevelFilter};
 
 mod auth;
 mod chat;
@@ -13,7 +13,7 @@ mod message;
 
 use auth::AuthServer;
 use chat::ChatServer;
-use tracing_subscriber::{EnvFilter, util::SubscriberInitExt};
+use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan, util::SubscriberInitExt};
 
 use crate::message::MessageServer;
 
@@ -50,7 +50,7 @@ async fn main() -> anyhow::Result<()> {
     info!(?pool, "Connected to database");
 
     sqlx::migrate!().run(&pool).await?;
-    info!(?pool, "Ran database migrations");
+    info!("Ran database migrations");
 
     let auth_server = AuthServer::new(pool.clone());
     let chat_server = ChatServer::new(pool.clone());
@@ -80,10 +80,13 @@ async fn main() -> anyhow::Result<()> {
 }
 
 fn init_tracing(filter: Option<&str>) {
-    let env_filter = EnvFilter::builder().parse_lossy(filter.unwrap_or_default());
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .parse_lossy(filter.unwrap_or_default());
 
     tracing_subscriber::fmt()
         .with_env_filter(env_filter)
+        .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
         .finish()
         .init()
 }
