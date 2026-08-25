@@ -6,6 +6,10 @@ use std::{
     },
 };
 
+use argon2::{
+    Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
+    password_hash::{SaltString, rand_core::OsRng},
+};
 use sqlx::PgPool;
 use tokio::sync::RwLock;
 use tonic::{
@@ -71,13 +75,15 @@ impl AuthService for AuthServer {
     ) -> Result<Response<RegisterResponse>, Status> {
         let RegisterRequest { username, password } = request.into_inner();
 
+        let hashed_password = Self::hash_password(password).await?;
+
         sqlx::query!(
             r#"
                 INSERT INTO account (username, password)
                 VALUES ($1, $2)
             "#,
             username,
-            password
+            hashed_password
         )
         .execute(&self.db)
         .await
@@ -116,9 +122,7 @@ impl AuthService for AuthServer {
         .map_err(error::db)?
         .ok_or(Status::not_found("Username not found"))?;
 
-        if account.password != password {
-            return Err(Status::unauthenticated("Incorrect password"));
-        }
+        Self::compare_passwords(account.password, password).await?;
 
         let auth_token = self.auth_id.fetch_add(1, Ordering::Relaxed);
 
@@ -190,3 +194,32 @@ impl AuthInfo {
 }
 
 type AuthDb = Arc<RwLock<HashMap<HeaderValue, RowId>>>;
+
+impl AuthServer {
+    /// Hashes a plain text password using [`argon2`].
+    async fn hash_password(password: String) -> Result<String, Status> {
+        tokio::task::spawn_blocking(move || {
+            let salt = SaltString::generate(&mut OsRng);
+            Argon2::default()
+                .hash_password(password.as_bytes(), &salt)
+                .map(|hashed| hashed.to_string())
+        })
+        .await
+        .map_err(|_| Status::internal("Internal panic"))?
+        .map_err(|error| {
+            tracing::error!(?error);
+            Status::internal("Failed to hash password")
+        })
+    }
+
+    /// Compares an [`argon2`]-hashed password against a plain text password.
+    async fn compare_passwords(password: String, against: String) -> Result<(), Status> {
+        tokio::task::spawn_blocking(move || {
+            let hash = PasswordHash::new(&password)?;
+            Argon2::default().verify_password(against.as_bytes(), &hash)
+        })
+        .await
+        .map_err(|_| Status::internal("Internal panic"))?
+        .map_err(|_| Status::unauthenticated("Incorrect password"))
+    }
+}

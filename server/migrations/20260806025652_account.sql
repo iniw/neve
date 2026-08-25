@@ -4,6 +4,6 @@ CREATE TABLE account (
   -- The username of the account.
   username text NOT NULL UNIQUE,
 
-  -- The password of the account.
+  -- The password of the account, hashed using Argon2.
   password text NOT NULL
 );

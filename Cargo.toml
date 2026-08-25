@@ -12,8 +12,8 @@ edition = "2024"
 
 [workspace.dependencies]
 anyhow = { version = "1" }
+argon2 = { version = "0.5", features = ["std"] }
 clap = { version = "4", features = ["derive", "env"] }
-derive_more = { version = "2", features = ["debug"] }
 futures = { version = "0.3" }
 itertools = { version = "0.15" }
 prost = { version = "0.14" }
