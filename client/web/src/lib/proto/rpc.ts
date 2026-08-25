@@ -3,7 +3,6 @@ import {
   type Client,
   type CompatServiceDefinition,
   createChannel,
-  createClient as createNiceGrpcClient,
   createClientFactory,
   Metadata,
 } from "nice-grpc-web";
@@ -28,11 +27,4 @@ export function createClient<Service extends CompatServiceDefinition>(
   definition: Service,
 ): Client<Service> {
   return authenticatedClientFactory.create(definition, channel);
-}
-
-/** Creates a service client that does not send authentication metadata. */
-export function createUnauthenticatedClient<
-  Service extends CompatServiceDefinition,
->(definition: Service): Client<Service> {
-  return createNiceGrpcClient(definition, channel);
 }

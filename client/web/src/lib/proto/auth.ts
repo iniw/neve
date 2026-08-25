@@ -1,4 +1,4 @@
 import { AuthServiceDefinition } from "./generated/neve/server/v1/auth.ts";
-import { createUnauthenticatedClient } from "./rpc.ts";
+import { createClient } from "./rpc.ts";
 
-export const authService = createUnauthenticatedClient(AuthServiceDefinition);
+export const authService = createClient(AuthServiceDefinition);
