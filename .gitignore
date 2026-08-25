@@ -1,10 +1,15 @@
+# Rust build output
 target/
 
-# Auto-generated protobuf bindings
+# Private env
+.env
+
+# Generated protobuf bindings
 proto/src/generated/
 client/web/src/lib/proto/generated/
 
-# sqlx DB
+# DB data
 server/db/
 
-.env
+# Local TLS certificates
+.cert/

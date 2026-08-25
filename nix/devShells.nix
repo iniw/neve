@@ -5,6 +5,7 @@
 
   # Rust devtools
   rust-analyzer,
+  mkcert,
 
   # Web client devtools
   deno,
@@ -18,6 +19,7 @@
     packages = [
       # Rust devtools
       rust-analyzer
+      mkcert
 
       # Web client devtools
       deno

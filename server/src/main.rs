@@ -1,9 +1,12 @@
-use std::net::{IpAddr, Ipv6Addr, SocketAddr};
+use std::{
+    net::{IpAddr, Ipv6Addr, SocketAddr},
+    path::PathBuf,
+};
 
 use clap::Parser;
 use sqlx::PgPool;
 use tokio::signal::unix::{SignalKind, signal};
-use tonic::transport::Server;
+use tonic::transport::{Identity, Server, ServerTlsConfig};
 use tonic_web::GrpcWebLayer;
 use tower_http::cors::CorsLayer;
 use tracing::{info, level_filters::LevelFilter};
@@ -37,6 +40,14 @@ struct ServerArgs {
     /// See <https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNSTRING> for the syntax definition.
     #[arg(long, env = "DATABASE_URL")]
     database_url: String,
+
+    /// The PEM certificate chain that the server will use for TLS.
+    #[arg(long, env = "SERVER_TLS_CERTIFICATE")]
+    tls_certificate: PathBuf,
+
+    /// The PEM private key that the server will use for TLS.
+    #[arg(long, env = "SERVER_TLS_PRIVATE_KEY")]
+    tls_private_key: PathBuf,
 }
 
 #[tokio::main]
@@ -59,7 +70,10 @@ async fn main() -> anyhow::Result<()> {
     let message_server = MessageServer::new(pool);
 
     let server = Server::builder()
-        .accept_http1(true)
+        .tls_config(ServerTlsConfig::new().identity(Identity::from_pem(
+            tokio::fs::read(args.tls_certificate).await?,
+            tokio::fs::read(args.tls_private_key).await?,
+        )))?
         .layer(CorsLayer::permissive().allow_credentials(false))
         .layer(GrpcWebLayer::new())
         .add_service(auth_server.interceptor(chat_server.service()))

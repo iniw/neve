@@ -10,9 +10,9 @@ use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan, util::SubscriberInitEx
 
 #[derive(Parser)]
 struct ClientArgs {
-    /// The port to connect to the server on.
+    /// The URL of the server to connect to.
     #[arg(long)]
-    port: u16,
+    server_url: String,
 
     /// The filter to use for the client's tracing logs.
     ///
@@ -36,9 +36,7 @@ async fn main() -> anyhow::Result<()> {
 
     init_tracing(args.tracing_filter.as_deref());
 
-    let endpoint = format!("http://[::]:{}", args.port);
-
-    let mut auth_client = AuthServiceClient::connect(endpoint.clone()).await?;
+    let mut auth_client = AuthServiceClient::connect(args.server_url).await?;
 
     _ = auth_client
         .register(Request::new(RegisterRequest {
