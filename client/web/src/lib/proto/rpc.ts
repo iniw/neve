@@ -7,7 +7,7 @@ import {
   createClientFactory,
   Metadata,
 } from "nice-grpc-web";
-import { readAuthToken } from "./auth.ts";
+import { readAuthToken } from "./auth-token.ts";
 
 const channel = createChannel(SERVER_URL);
 
