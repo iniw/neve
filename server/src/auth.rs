@@ -14,7 +14,7 @@ use tonic::{
     codegen::http::{HeaderValue, Request as HttpRequest},
 };
 use tonic_middleware::{InterceptorFor, RequestInterceptor};
-use tracing::{Level, info, instrument};
+use tracing::{Level, instrument};
 
 use neve_proto::{
     AUTH_TOKEN_HEADER,
@@ -30,12 +30,9 @@ use crate::error;
 #[cfg(test)]
 pub mod tests;
 
-#[derive(derive_more::Debug)]
 pub struct AuthServer {
-    #[debug(skip)]
     db: PgPool,
 
-    #[debug(skip)]
     auth_db: AuthDb,
 
     auth_id: AtomicU64,
@@ -67,23 +64,22 @@ impl AuthServer {
 
 #[tonic::async_trait]
 impl AuthService for AuthServer {
-    #[instrument(err)]
+    #[instrument(skip(self, request), fields(request.username = ?request.get_ref().username), err)]
     async fn register(
         &self,
         request: Request<RegisterRequest>,
     ) -> Result<Response<RegisterResponse>, Status> {
         let RegisterRequest { username, password } = request.into_inner();
 
-        let account = sqlx::query!(
+        sqlx::query!(
             r#"
                 INSERT INTO account (username, password)
                 VALUES ($1, $2)
-                RETURNING id
             "#,
             username,
             password
         )
-        .fetch_one(&self.db)
+        .execute(&self.db)
         .await
         .map_err(|error| {
             // Specialize the error for username collisions to provide a better error message,
@@ -97,12 +93,10 @@ impl AuthService for AuthServer {
             }
         })?;
 
-        info!(?account, ?username, ?password, "Registered account");
-
         Ok(Response::new(RegisterResponse {}))
     }
 
-    #[instrument(err)]
+    #[instrument(skip(self, request), fields(request.username = ?request.get_ref().username), err)]
     async fn authenticate(
         &self,
         request: Request<AuthenticateRequest>,
@@ -149,15 +143,14 @@ impl AuthService for AuthServer {
 ///
 /// Requests with valid credentials will be augmented with [authentication-related information](`AuthInfo`) that the RPC
 /// handler can use to determine which account performed the request.
-#[derive(Clone, derive_more::Debug)]
+#[derive(Clone)]
 pub struct AuthInterceptor {
-    #[debug(skip)]
     auth_db: AuthDb,
 }
 
 #[tonic::async_trait]
 impl RequestInterceptor for AuthInterceptor {
-    #[instrument(level = Level::TRACE, err(level = Level::WARN))]
+    #[instrument(skip(self), level = Level::TRACE, err(level = Level::WARN))]
     async fn intercept(&self, mut request: HttpRequest<Body>) -> Result<HttpRequest<Body>, Status> {
         let auth_token = request
             .headers()

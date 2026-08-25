@@ -17,9 +17,7 @@ use crate::{auth::AuthInfo, error};
 #[cfg(test)]
 mod tests;
 
-#[derive(derive_more::Debug)]
 pub struct ChatServer {
-    #[debug(skip)]
     db: PgPool,
 }
 
@@ -35,7 +33,7 @@ impl ChatServer {
 
 #[tonic::async_trait]
 impl ChatService for ChatServer {
-    #[instrument(err)]
+    #[instrument(skip(self), fields(request = ?request.get_ref()), err)]
     async fn create_chat(
         &self,
         request: Request<CreateChatRequest>,
@@ -104,7 +102,7 @@ impl ChatService for ChatServer {
 
     type GetChatsStream = Pin<Box<ReceiverStream<Result<GetChatsResponse, Status>>>>;
 
-    #[instrument(err)]
+    #[instrument(skip(self), fields(request = ?request.get_ref()), err)]
     async fn get_chats(
         &self,
         request: Request<GetChatsRequest>,

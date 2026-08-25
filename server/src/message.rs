@@ -21,9 +21,7 @@ use crate::{auth::AuthInfo, error};
 #[cfg(test)]
 mod tests;
 
-#[derive(derive_more::Debug)]
 pub struct MessageServer {
-    #[debug(skip)]
     db: PgPool,
 }
 
@@ -75,7 +73,7 @@ impl MessageServer {
 
 #[tonic::async_trait]
 impl MessageService for MessageServer {
-    #[instrument(err)]
+    #[instrument(skip(self), fields(request = ?request.get_ref()), err)]
     async fn send_message(
         &self,
         request: Request<SendMessageRequest>,
@@ -103,7 +101,7 @@ impl MessageService for MessageServer {
         }))
     }
 
-    #[instrument(err)]
+    #[instrument(skip(self), fields(request = ?request.get_ref()), err)]
     async fn get_message(
         &self,
         request: Request<GetMessageRequest>,
@@ -131,7 +129,7 @@ impl MessageService for MessageServer {
 
     type GetPastMessagesStream = Pin<Box<ReceiverStream<Result<GetPastMessagesResponse, Status>>>>;
 
-    #[instrument(err)]
+    #[instrument(skip(self), fields(request = ?request.get_ref()), err)]
     async fn get_past_messages(
         &self,
         request: Request<GetPastMessagesRequest>,
@@ -174,7 +172,7 @@ impl MessageService for MessageServer {
     type GetFutureMessagesStream =
         Pin<Box<dyn Stream<Item = Result<GetFutureMessagesResponse, Status>> + Send>>;
 
-    #[instrument(err)]
+    #[instrument(skip(self), fields(request = ?request.get_ref()), err)]
     async fn get_future_messages(
         &self,
         request: Request<GetFutureMessagesRequest>,
@@ -194,7 +192,7 @@ impl MessageService for MessageServer {
 
     type GetMessagesStream = Pin<Box<ReceiverStream<Result<GetMessagesResponse, Status>>>>;
 
-    #[instrument(err)]
+    #[instrument(skip(self), fields(request = ?request.get_ref()), err)]
     async fn get_messages(
         &self,
         request: Request<GetMessagesRequest>,
