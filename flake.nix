@@ -17,6 +17,7 @@
           pkgs = inputs.nixpkgs.legacyPackages.${system}.extend (
             final: prev: {
               inherit (inputs) self;
+              inherit (inputs.self.packages.${system}) protoc-gen-ts_proto;
               crane = inputs.crane.mkLib final;
             }
           );
@@ -43,7 +44,14 @@
         }
       );
 
-      # To easily run a specific check with `nix build .#foo`
-      packages = inputs.self.checks;
+      packages = forAllSystems (
+        system:
+        let
+          pkgs = inputs.nixpkgs.legacyPackages.${system};
+        in
+        {
+          protoc-gen-ts_proto = pkgs.callPackage ./nix/pkgs/protoc-gen-ts_proto { };
+        }
+      );
     };
 }

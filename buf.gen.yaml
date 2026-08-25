@@ -1,0 +1,16 @@
+version: v2
+clean: true
+plugins:
+  - local: protoc-gen-prost
+    out: proto/src/generated
+
+  - local: protoc-gen-tonic
+    out: proto/src/generated
+
+  - local: protoc-gen-ts_proto
+    out: client/web/src/lib/proto/generated
+    opt:
+      - outputServices=nice-grpc
+      - outputServices=generic-definitions
+      - esModuleInterop=true
+      - useExactTypes=false

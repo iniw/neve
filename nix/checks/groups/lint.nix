@@ -39,9 +39,13 @@
     nativeBuildInputs = [ buf ];
 
     buildPhase = ''
-      # buf requires a valid $HOME, otherwise it fails with:
+      # buf defaults this to ~/.cache, so it fails under the nix sandbox because $HOME isn't set.
+      # Leaving it in the default value fails with:
+      #
       # mkdir /homeless-shelter: operation not permitted
-      export HOME=$TMPDIR
+      #
+      # See <https://buf.build/docs/bsr/ci-cd/setup/#cache-module-downloads>
+      export BUF_CACHE_DIR="$TMPDIR/.buf-cache"
 
       buf lint
       buf format --exit-code --diff

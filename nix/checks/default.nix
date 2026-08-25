@@ -7,6 +7,7 @@ let
   pkgs' = pkgs.extend (
     final: prev: {
       ephemeralPostgresDbHook = callPackage ./ephemeralPostgresDbHook { };
+      protobufGenerationHook = callPackage ./protobufGenerationHook { };
     }
   );
 

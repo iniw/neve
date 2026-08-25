@@ -1,6 +1,6 @@
 pub mod server {
     pub mod v1 {
-        tonic::include_proto!("neve.server.v1");
+        include!("generated/neve/server/v1/neve.server.v1.rs");
     }
 }
 
