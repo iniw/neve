@@ -4,6 +4,8 @@ use clap::Parser;
 use sqlx::PgPool;
 use tokio::signal::unix::{SignalKind, signal};
 use tonic::transport::Server;
+use tonic_web::GrpcWebLayer;
+use tower_http::cors::CorsLayer;
 use tracing::{info, level_filters::LevelFilter};
 
 mod auth;
@@ -57,6 +59,9 @@ async fn main() -> anyhow::Result<()> {
     let message_server = MessageServer::new(pool);
 
     let server = Server::builder()
+        .accept_http1(true)
+        .layer(CorsLayer::permissive().allow_credentials(false))
+        .layer(GrpcWebLayer::new())
         .add_service(auth_server.interceptor(chat_server.service()))
         .add_service(auth_server.interceptor(message_server.service()))
         .add_service(auth_server.service());

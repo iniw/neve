@@ -1,0 +1,13 @@
+{
+  "$schema": "https://raw.githubusercontent.com/denoland/deno/refs/heads/main/cli/schemas/config-file.v1.json",
+  "exclude": [
+    ".svelte-kit/generated",
+    ".svelte-kit/output",
+    "build"
+  ],
+  "lint": {
+    "exclude": ["src/lib/proto/generated"]
+  },
+  // Enable formatting for svelte files
+  "unstable": ["fmt-component"]
+}

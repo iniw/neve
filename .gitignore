@@ -1,4 +1,10 @@
 target/
 
-# sqlx DBs
+# Auto-generated protobuf bindings
+proto/src/generated/
+client/web/src/lib/proto/generated/
+
+# sqlx DB
 server/db/
+
+.env

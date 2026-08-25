@@ -2,8 +2,8 @@
   self,
   crane,
   lib,
-  protobuf,
   ephemeralPostgresDbHook,
+  protobufGenerationHook,
 }:
 let
   # crane automatically appends the "type" of the derivation to as a suffix `pname`:
@@ -26,6 +26,8 @@ let
       || (lib.any (suffix: lib.hasSuffix suffix path) [
         ".proto"
         ".sql"
+        "buf.gen.yaml"
+        "buf.yaml"
       ]);
   };
 
@@ -35,8 +37,8 @@ let
   };
 
   nativeBuildInputs = [
-    # prost requires protoc to compile the protobuf files.
-    protobuf
+    # Generate the Rust bindings before Cargo reads the protobuf crate.
+    protobufGenerationHook
     # sqlx needs a live database to analyze queries and run tests.
     ephemeralPostgresDbHook
   ];
