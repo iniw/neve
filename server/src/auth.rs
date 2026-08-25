@@ -157,7 +157,7 @@ pub struct AuthInterceptor {
 
 #[tonic::async_trait]
 impl RequestInterceptor for AuthInterceptor {
-    #[instrument(level = Level::TRACE, err(level = Level::INFO))]
+    #[instrument(level = Level::TRACE, err(level = Level::WARN))]
     async fn intercept(&self, mut request: HttpRequest<Body>) -> Result<HttpRequest<Body>, Status> {
         let auth_token = request
             .headers()
