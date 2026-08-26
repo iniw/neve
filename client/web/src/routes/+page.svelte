@@ -40,9 +40,7 @@ async function submit(event: SubmitEvent) {
 
         storeAuthToken(authToken);
 
-        await goto("/chats/new");
-
-        return;
+        return await goto("/chats/new");
       } catch (inner) {
         error = inner;
       }
