@@ -8,7 +8,7 @@ use super::*;
 
 #[sqlx::test]
 async fn get_message(db: PgPool) -> anyhow::Result<()> {
-    let auth_server = AuthServer::new(db.clone());
+    let auth_server = AuthServer::for_tests(db.clone());
     let chat_server = ChatServer::new(db.clone());
     let server = MessageServer::new(db);
 
@@ -72,7 +72,7 @@ async fn get_message(db: PgPool) -> anyhow::Result<()> {
 
 #[sqlx::test]
 async fn get_past_messages(db: PgPool) -> anyhow::Result<()> {
-    let auth_server = AuthServer::new(db.clone());
+    let auth_server = AuthServer::for_tests(db.clone());
     let chat_server = ChatServer::new(db.clone());
     let server = MessageServer::new(db);
 
@@ -132,7 +132,7 @@ async fn get_past_messages(db: PgPool) -> anyhow::Result<()> {
 
 #[sqlx::test]
 async fn get_future_messages(db: PgPool) -> anyhow::Result<()> {
-    let auth_server = AuthServer::new(db.clone());
+    let auth_server = AuthServer::for_tests(db.clone());
     let chat_server = ChatServer::new(db.clone());
     let server = MessageServer::new(db);
 
@@ -179,7 +179,7 @@ async fn get_future_messages(db: PgPool) -> anyhow::Result<()> {
 
 #[sqlx::test]
 async fn get_messages(db: PgPool) -> anyhow::Result<()> {
-    let auth_server = AuthServer::new(db.clone());
+    let auth_server = AuthServer::for_tests(db.clone());
     let chat_server = ChatServer::new(db.clone());
     let server = MessageServer::new(db);
 

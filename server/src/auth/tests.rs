@@ -1,4 +1,4 @@
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use anyhow::Context;
 use futures::future::try_join_all;
@@ -10,9 +10,15 @@ use super::*;
 const USERNAME: &str = "test-username";
 const PASSWORD: &str = "test-password";
 
+fn paseto_key_for_tests() -> Arc<PasetoSymmetricKey> {
+    Arc::new(PasetoSymmetricKey::from(PasetoKey::from(
+        b"test-key-for-neve-auth-tests-123",
+    )))
+}
+
 #[sqlx::test]
 async fn authenticates_after_registering(db: PgPool) -> anyhow::Result<()> {
-    let server = AuthServer::new(db);
+    let server = AuthServer::for_tests(db);
 
     server
         .register(Request::new(RegisterRequest {
@@ -33,7 +39,7 @@ async fn authenticates_after_registering(db: PgPool) -> anyhow::Result<()> {
 
 #[sqlx::test]
 async fn doesnt_authenticate_before_registering(db: PgPool) -> anyhow::Result<()> {
-    let server = AuthServer::new(db);
+    let server = AuthServer::for_tests(db);
 
     let error = server
         .authenticate(Request::new(AuthenticateRequest {
@@ -50,7 +56,7 @@ async fn doesnt_authenticate_before_registering(db: PgPool) -> anyhow::Result<()
 
 #[sqlx::test]
 async fn auth_tokens_are_unique(db: PgPool) -> anyhow::Result<()> {
-    let server = AuthServer::new(db);
+    let server = AuthServer::for_tests(db);
 
     let usernames = ["julia", "vono", "karks", "gui"];
 
@@ -81,7 +87,7 @@ async fn auth_tokens_are_unique(db: PgPool) -> anyhow::Result<()> {
 
 #[sqlx::test]
 async fn password_needs_to_match(db: PgPool) -> anyhow::Result<()> {
-    let server = AuthServer::new(db);
+    let server = AuthServer::for_tests(db);
 
     server
         .register(Request::new(RegisterRequest {
@@ -105,7 +111,7 @@ async fn password_needs_to_match(db: PgPool) -> anyhow::Result<()> {
 
 #[sqlx::test]
 async fn usernames_are_unique(db: PgPool) -> anyhow::Result<()> {
-    let server = AuthServer::new(db);
+    let server = AuthServer::for_tests(db);
 
     server
         .register(Request::new(RegisterRequest {
@@ -129,13 +135,13 @@ async fn usernames_are_unique(db: PgPool) -> anyhow::Result<()> {
 
 #[sqlx::test]
 async fn interceptor_denies_unauthenticated_requests() -> anyhow::Result<()> {
-    let interceptor = AuthInterceptor {
-        auth_db: AuthDb::default(),
+    let mut interceptor = AuthInterceptor {
+        paseto_key: paseto_key_for_tests(),
     };
 
-    let request = HttpRequest::new(Body::empty());
+    let request = Request::new(());
 
-    let error = interceptor.intercept(request).await.unwrap_err();
+    let error = interceptor.call(request).unwrap_err();
 
     assert_eq!(error.code(), Code::Unauthenticated);
 
@@ -144,22 +150,19 @@ async fn interceptor_denies_unauthenticated_requests() -> anyhow::Result<()> {
 
 #[sqlx::test]
 async fn interceptor_allows_authenticated_requests() -> anyhow::Result<()> {
-    let auth_token = HeaderValue::from_static("47");
-    let account_id = 55;
-
-    let interceptor = AuthInterceptor {
-        auth_db: Arc::new(RwLock::new(HashMap::from([(
-            auth_token.clone(),
-            account_id,
-        )]))),
+    let mut interceptor = AuthInterceptor {
+        paseto_key: paseto_key_for_tests(),
     };
 
-    let request = HttpRequest::builder()
-        .header(AUTH_TOKEN_HEADER, auth_token)
-        .body(Body::empty())
-        .unwrap();
+    let account_id = 55;
+    let auth_token = AuthInfo { account_id }.into_auth_token(&paseto_key_for_tests())?;
 
-    let request = interceptor.intercept(request).await?;
+    let mut request = Request::new(());
+    request
+        .metadata_mut()
+        .insert(AUTH_TOKEN_HEADER, auth_token.parse()?);
+
+    let request = interceptor.call(request)?;
 
     let auth_info = request
         .extensions()
@@ -172,6 +175,13 @@ async fn interceptor_allows_authenticated_requests() -> anyhow::Result<()> {
 }
 
 impl AuthServer {
+    pub fn for_tests(db: PgPool) -> Self {
+        Self {
+            db,
+            paseto_key: paseto_key_for_tests(),
+        }
+    }
+
     pub async fn generate_account(&self) -> Result<RowId, Status> {
         static GENERATED_ACCOUNT_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
@@ -191,18 +201,10 @@ impl AuthServer {
             .await?
             .into_inner();
 
-        let auth_token = HeaderValue::from_str(&auth_token)
-            .expect("An authentication token is always a valid header value");
+        let auth_info = AuthInfo::from_auth_token(&auth_token, &self.paseto_key)
+            .expect("Auth token must be valid");
 
-        let account_id = self
-            .auth_db
-            .read()
-            .await
-            .get(&auth_token)
-            .copied()
-            .expect("A successful authentication always inserts the account ID");
-
-        Ok(account_id)
+        Ok(auth_info.account_id)
     }
 }
 
