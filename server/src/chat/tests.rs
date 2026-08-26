@@ -4,7 +4,7 @@ use super::*;
 
 #[sqlx::test]
 async fn create_then_get(db: PgPool) -> anyhow::Result<()> {
-    let auth_server = AuthServer::new(db.clone());
+    let auth_server = AuthServer::for_tests(db.clone());
     let server = ChatServer::new(db);
 
     let vini = auth_server.generate_account().await?;

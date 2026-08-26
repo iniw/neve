@@ -1,23 +1,19 @@
-use std::{
-    collections::HashMap,
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
-};
+use std::{sync::Arc, time::Duration};
 
 use argon2::{
     Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
     password_hash::{SaltString, rand_core::OsRng},
 };
+use rusty_paseto::{
+    Error as PasetoError,
+    core::{Local, V4},
+};
+use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
-use tokio::sync::RwLock;
 use tonic::{
     Request, Response, Status,
-    body::Body,
-    codegen::http::{HeaderValue, Request as HttpRequest},
+    service::{Interceptor, interceptor::InterceptedService},
 };
-use tonic_middleware::{InterceptorFor, RequestInterceptor};
 use tracing::{Level, instrument};
 
 use neve_proto::{
@@ -36,18 +32,14 @@ pub mod tests;
 
 pub struct AuthServer {
     db: PgPool,
-
-    auth_db: AuthDb,
-
-    auth_id: AtomicU64,
+    paseto_key: Arc<PasetoSymmetricKey>,
 }
 
 impl AuthServer {
-    pub fn new(db: PgPool) -> Self {
+    pub fn new(db: PgPool, paseto_key: PasetoKey) -> Self {
         Self {
             db,
-            auth_db: Default::default(),
-            auth_id: Default::default(),
+            paseto_key: Arc::new(PasetoSymmetricKey::from(paseto_key)),
         }
     }
 
@@ -56,11 +48,11 @@ impl AuthServer {
     }
 
     /// Wraps the given service in the [`AuthInterceptor`] interceptor.
-    pub fn interceptor<S>(&self, service: S) -> InterceptorFor<S, AuthInterceptor> {
-        InterceptorFor::new(
+    pub fn interceptor<S>(&self, service: S) -> InterceptedService<S, AuthInterceptor> {
+        InterceptedService::new(
             service,
             AuthInterceptor {
-                auth_db: self.auth_db.clone(),
+                paseto_key: self.paseto_key.clone(),
             },
         )
     }
@@ -124,23 +116,17 @@ impl AuthService for AuthServer {
 
         Self::compare_passwords(account.password, password).await?;
 
-        let auth_token = self.auth_id.fetch_add(1, Ordering::Relaxed);
-
-        let auth_token_header = HeaderValue::from_str(&auth_token.to_string())
-            .expect("A u64 is always a valid header value");
-
-        self.auth_db
-            .write()
-            .await
-            .insert(auth_token_header, account.id);
-
-        let auth_token = auth_token.to_string();
+        let auth_token = AuthInfo {
+            account_id: account.id,
+        }
+        .into_auth_token(&self.paseto_key)
+        .map_err(|_| Status::internal("Failed to build authentication token"))?;
 
         Ok(Response::new(AuthenticateResponse { auth_token }))
     }
 }
 
-/// An [interceptor](tonic_middleware::RequestInterceptor) that ensures every HTTP request received contains valid
+/// An [`Interceptor`] that ensures every HTTP request received contains valid
 /// authentication metadata, presumably obtained through the [`AuthService::authenticate`] RPC method.
 ///
 /// Requests with missing/invalid credentials will fail with status code [`Unauthenticated`](tonic::Code::Unauthenticated).
@@ -149,34 +135,30 @@ impl AuthService for AuthServer {
 /// handler can use to determine which account performed the request.
 #[derive(Clone)]
 pub struct AuthInterceptor {
-    auth_db: AuthDb,
+    paseto_key: Arc<PasetoSymmetricKey>,
 }
 
-#[tonic::async_trait]
-impl RequestInterceptor for AuthInterceptor {
+impl Interceptor for AuthInterceptor {
     #[instrument(skip(self), level = Level::TRACE, err(level = Level::WARN))]
-    async fn intercept(&self, mut request: HttpRequest<Body>) -> Result<HttpRequest<Body>, Status> {
+    fn call(&mut self, mut request: Request<()>) -> Result<Request<()>, Status> {
         let auth_token = request
-            .headers()
+            .metadata()
             .get(AUTH_TOKEN_HEADER)
-            .ok_or(Status::unauthenticated("Missing authentication token"))?;
+            .ok_or(Status::unauthenticated("Missing authentication token"))?
+            .to_str()
+            .map_err(|_| Status::unauthenticated("Invalid authentication token encoding"))?;
 
-        let account_id = self
-            .auth_db
-            .read()
-            .await
-            .get(auth_token)
-            .copied()
-            .ok_or(Status::unauthenticated("Invalid authentication token"))?;
+        let auth_info = AuthInfo::from_auth_token(auth_token, &self.paseto_key)
+            .map_err(|_| Status::unauthenticated("Invalid authentication token"))?;
 
-        request.extensions_mut().insert(AuthInfo { account_id });
+        request.extensions_mut().insert(auth_info);
 
         Ok(request)
     }
 }
 
 /// Authentication-related information that [`AuthInterceptor`] adds to every correctly authenticated [`Request`].
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 pub struct AuthInfo {
     /// The ID of the account that performed the request.
     pub account_id: RowId,
@@ -191,9 +173,41 @@ impl AuthInfo {
             .copied()
             .ok_or(Status::unauthenticated("No authentication info"))
     }
-}
 
-type AuthDb = Arc<RwLock<HashMap<HeaderValue, RowId>>>;
+    /// The claim key used to store the authentication info.
+    ///
+    /// Must never match one of the [reserved claims](https://github.com/paseto-standard/paseto-spec/blob/master/docs/02-Implementation-Guide/04-Claims.md).
+    const CLAIM_KEY: &str = "neve-auth-info";
+
+    /// Builds an authentication token for the current authentication information using the given `paseto_key`
+    fn into_auth_token(self, paseto_key: &PasetoSymmetricKey) -> Result<String, PasetoError> {
+        PasetoBuilder::default()
+            .expires_in(Duration::from_hours(24 * 7))
+            .claim(Self::CLAIM_KEY, self)
+            .expect("Claim key must not be reserved")
+            .build(paseto_key)
+            .map_err(PasetoError::from)
+    }
+
+    /// Parses an authentication token and returns its authentication information.
+    ///
+    /// The token must be valid for `paseto_key` and contain an integer `uid` claim that fits in a [`RowId`].
+    fn from_auth_token(
+        auth_token: &str,
+        paseto_key: &PasetoSymmetricKey,
+    ) -> Result<Self, PasetoError> {
+        let json = PasetoParser::default()
+            .parse(auth_token, paseto_key)
+            .map_err(PasetoError::from)?;
+
+        let auth_info = json
+            .get(Self::CLAIM_KEY)
+            .ok_or(PasetoError::MissingClaim(Self::CLAIM_KEY.to_owned()))?;
+
+        Self::deserialize(auth_info)
+            .map_err(|_| PasetoError::UnexpectedClaimType(Self::CLAIM_KEY.to_owned()))
+    }
+}
 
 impl AuthServer {
     /// Hashes a plain text password using [`argon2`].
@@ -223,3 +237,8 @@ impl AuthServer {
         .map_err(|_| Status::unauthenticated("Incorrect password"))
     }
 }
+
+type PasetoBuilder<'a> = rusty_paseto::prelude::PasetoBuilder<'a, V4, Local>;
+type PasetoParser<'a> = rusty_paseto::prelude::PasetoParser<'a, V4, Local>;
+type PasetoSymmetricKey = rusty_paseto::core::PasetoSymmetricKey<V4, Local>;
+pub type PasetoKey = rusty_paseto::core::Key<32>;
