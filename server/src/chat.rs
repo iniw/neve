@@ -12,7 +12,7 @@ use neve_proto::server::v1::{
     chat_service_server::{ChatService, ChatServiceServer},
 };
 
-use crate::{auth::AuthInfo, error};
+use crate::{auth::AuthInfo, error::IntoStatus};
 
 #[cfg(test)]
 mod tests;
@@ -48,7 +48,7 @@ impl ChatService for ChatServer {
         // The creator of the chat is itself a participant
         participants.push(account_id);
 
-        let mut tx = self.db.begin().await.map_err(error::db)?;
+        let mut tx = self.db.begin().await.map_err(IntoStatus::into_status)?;
 
         let name = if let Some(name) = name {
             name
@@ -64,7 +64,7 @@ impl ChatService for ChatServer {
             )
             .fetch_all(tx.as_mut())
             .await
-            .map_err(error::db)?;
+            .map_err(IntoStatus::into_status)?;
 
             records.into_iter().map(|record| record.username).join(", ")
         };
@@ -79,7 +79,7 @@ impl ChatService for ChatServer {
         )
         .fetch_one(tx.as_mut())
         .await
-        .map_err(error::db)?;
+        .map_err(IntoStatus::into_status)?;
 
         for account_id in participants {
             sqlx::query!(
@@ -92,10 +92,10 @@ impl ChatService for ChatServer {
             )
             .execute(tx.as_mut())
             .await
-            .map_err(error::db)?;
+            .map_err(IntoStatus::into_status)?;
         }
 
-        tx.commit().await.map_err(error::db)?;
+        tx.commit().await.map_err(IntoStatus::into_status)?;
 
         Ok(Response::new(CreateChatResponse { chat_id: chat.id }))
     }
@@ -128,7 +128,7 @@ impl ChatService for ChatServer {
                         Ok(record) => Ok(GetChatsResponse {
                             chat_id: record.chat_id,
                         }),
-                        Err(error) => Err(error::db(error)),
+                        Err(error) => Err(error.into_status()),
                     };
 
                     if responses_tx.send(response).await.is_err() {

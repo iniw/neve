@@ -1,4 +1,17 @@
-use std::{num::ParseIntError, pin::Pin, str::FromStr};
+use std::{
+    collections::HashMap,
+    num::ParseIntError,
+    pin::Pin,
+    sync::{Arc, Weak},
+};
+
+use sqlx::{PgPool, postgres::PgListener};
+use thiserror::Error;
+use tokio::sync::{RwLock, mpsc, watch};
+use tokio_stream::{Stream, StreamExt, wrappers::ReceiverStream};
+use tokio_util::task::AbortOnDropHandle;
+use tonic::{Request, Response, Status};
+use tracing::{Instrument, instrument};
 
 use neve_proto::server::v1::{
     GetFutureMessagesRequest, GetFutureMessagesResponse, GetMessageRequest, GetMessageResponse,
@@ -6,68 +19,29 @@ use neve_proto::server::v1::{
     SendMessageRequest, SendMessageResponse,
     message_service_server::{MessageService, MessageServiceServer},
 };
-
-use sqlx::{PgPool, postgres::PgListener};
-use thiserror::Error;
-use tokio::sync::mpsc;
-use tokio_stream::{Stream, StreamExt, wrappers::ReceiverStream};
-use tonic::{Request, Response, Status};
-use tracing::{Instrument, instrument, warn};
-
 use neve_server::RowId;
 
-use crate::{auth::AuthInfo, error};
+use crate::{auth::AuthInfo, error::IntoStatus};
 
 #[cfg(test)]
 mod tests;
 
 pub struct MessageServer {
     db: PgPool,
+    message_notifications: MessageNotifications,
 }
 
 impl MessageServer {
-    pub fn new(db: PgPool) -> Self {
-        Self { db }
+    pub async fn new(db: PgPool) -> Result<Self, MessageNotificationError> {
+        let message_notifications = MessageNotifications::listen(&db).await?;
+        Ok(Self {
+            db,
+            message_notifications,
+        })
     }
 
     pub fn service(self) -> MessageServiceServer<Self> {
         MessageServiceServer::new(self)
-    }
-
-    /// Constructs a [`Stream`] that produces a value when a new row is inserted in the `message` table of the database.
-    ///
-    /// The underlying stream of events is the `new_message` postgres notification channel, which is created on the same
-    /// migration script that the table itself is created on.
-    ///
-    /// See:
-    /// - <https://www.postgresql.org/docs/current/sql-listen.html>
-    /// - <https://www.postgresql.org/docs/current/sql-notify.html>
-    /// - <https://docs.rs/sqlx/latest/sqlx/postgres/struct.PgListener.html>
-    async fn new_message_stream(
-        db: PgPool,
-        chat_id: RowId,
-    ) -> Result<impl Stream<Item = Result<RowId, sqlx::Error>>, sqlx::Error> {
-        let mut listener = PgListener::connect_with(&db).await?;
-
-        listener.listen("new_message").await?;
-
-        Ok(listener.into_stream().filter_map(move |result| {
-            match result.and_then(|notification| {
-                notification
-                    .payload()
-                    .parse::<NewMessageNotification>()
-                    .map_err(|error| sqlx::Error::InvalidArgument(error.to_string()))
-            }) {
-                Ok(new_message) => {
-                    if new_message.chat_id == chat_id {
-                        Some(Ok(new_message.message_id))
-                    } else {
-                        None
-                    }
-                }
-                Err(error) => Some(Err(error)),
-            }
-        }))
     }
 }
 
@@ -82,19 +56,39 @@ impl MessageService for MessageServer {
 
         let SendMessageRequest { chat_id, content } = request.into_inner();
 
+        let mut tx = self.db.begin().await.map_err(IntoStatus::into_status)?;
+
+        // Updating the chat row serializes message position allocation for this chat. The lock is held until the
+        // transaction commits, so message position also matches commit order.
+        let chat = sqlx::query!(
+            r#"
+                UPDATE chat
+                SET next_message_position = next_message_position + 1
+                WHERE id = $1
+                RETURNING next_message_position
+            "#,
+            chat_id
+        )
+        .fetch_one(tx.as_mut())
+        .await
+        .map_err(IntoStatus::into_status)?;
+
         let record = sqlx::query!(
             r#"
-                INSERT INTO message (account_id, chat_id, content)
-                VALUES ($1, $2, $3)
+                INSERT INTO message (account_id, chat_id, content, chat_position)
+                VALUES ($1, $2, $3, $4)
                 RETURNING id
             "#,
             account_id,
             chat_id,
-            content
+            content,
+            chat.next_message_position,
         )
-        .fetch_one(&self.db)
+        .fetch_one(tx.as_mut())
         .await
-        .map_err(error::db)?;
+        .map_err(IntoStatus::into_status)?;
+
+        tx.commit().await.map_err(IntoStatus::into_status)?;
 
         Ok(Response::new(SendMessageResponse {
             message_id: record.id,
@@ -118,7 +112,7 @@ impl MessageService for MessageServer {
         )
         .fetch_one(&self.db)
         .await
-        .map_err(error::db)?;
+        .map_err(IntoStatus::into_status)?;
 
         Ok(Response::new(GetMessageResponse {
             account_id: record.account_id,
@@ -145,6 +139,7 @@ impl MessageService for MessageServer {
                         SELECT id
                         FROM message
                         WHERE chat_id = $1
+                        ORDER BY chat_position
                     "#,
                     chat_id
                 )
@@ -155,7 +150,7 @@ impl MessageService for MessageServer {
                         Ok(record) => Ok(GetPastMessagesResponse {
                             message_id: record.id,
                         }),
-                        Err(error) => Err(error::db(error)),
+                        Err(error) => Err(error.into_status()),
                     };
 
                     if responses_tx.send(response).await.is_err() {
@@ -179,18 +174,17 @@ impl MessageService for MessageServer {
     ) -> Result<Response<Self::GetFutureMessagesStream>, Status> {
         let GetFutureMessagesRequest { chat_id } = request.into_inner();
 
-        let responses = Self::new_message_stream(self.db.clone(), chat_id)
+        let responses = self
+            .message_id_stream(chat_id, ExistingMessages::Exclude)
             .await
-            .map_err(error::db)?
-            .map(move |result| match result {
-                Ok(message_id) => Ok(GetFutureMessagesResponse { message_id }),
-                Err(error) => Err(error::db(error)),
-            });
+            .map_err(IntoStatus::into_status)?
+            .map(|result| result.map(|message_id| GetFutureMessagesResponse { message_id }));
 
         Ok(Response::new(Box::pin(responses)))
     }
 
-    type GetMessagesStream = Pin<Box<ReceiverStream<Result<GetMessagesResponse, Status>>>>;
+    type GetMessagesStream =
+        Pin<Box<dyn Stream<Item = Result<GetMessagesResponse, Status>> + Send>>;
 
     #[instrument(skip(self), fields(request = ?request.get_ref()), err)]
     async fn get_messages(
@@ -199,119 +193,164 @@ impl MessageService for MessageServer {
     ) -> Result<Response<Self::GetMessagesStream>, Status> {
         let GetMessagesRequest { chat_id } = request.into_inner();
 
+        let responses = self
+            .message_id_stream(chat_id, ExistingMessages::Include)
+            .await
+            .map_err(IntoStatus::into_status)?
+            .map(|result| result.map(|message_id| GetMessagesResponse { message_id }));
+
+        Ok(Response::new(Box::pin(responses)))
+    }
+}
+
+impl MessageServer {
+    async fn message_id_stream(
+        &self,
+        chat_id: RowId,
+        existing_messages: ExistingMessages,
+    ) -> Result<ReceiverStream<Result<RowId, Status>>, MessageNotificationError> {
+        let mut notifications = self.message_notifications.subscribe(chat_id).await?;
+
+        let mut current_chat_position = match existing_messages {
+            ExistingMessages::Include => 0,
+            ExistingMessages::Exclude => sqlx::query_scalar!(
+                r#"
+                    SELECT next_message_position
+                    FROM chat
+                    WHERE id = $1
+                "#,
+                chat_id,
+            )
+            .fetch_optional(&self.db)
+            .await?
+            .unwrap_or(0),
+        };
+
         let db = self.db.clone();
         let (responses_tx, responses_rx) = mpsc::channel(1024);
-
-        let mut new_messages = Self::new_message_stream(db.clone(), chat_id)
-            .await
-            .map_err(error::db)?;
-
         tokio::spawn(
             async move {
-                // First batch: messages from the past (as in already present in the DB at the time of request)
-                let mut results = sqlx::query!(
-                    r#"
-                        SELECT id
-                        FROM message
-                        WHERE chat_id = $1
-                        ORDER BY id
-                    "#,
-                    chat_id
-                )
-                .fetch(&db);
+                loop {
+                    let mut records = sqlx::query!(
+                        r#"
+                            SELECT id, chat_position
+                            FROM message
+                            WHERE chat_id = $1 AND chat_position > $2
+                            ORDER BY chat_position
+                        "#,
+                        chat_id,
+                        current_chat_position,
+                    )
+                    .fetch(&db);
 
-                // Track the last message we sent in the first batch to not send it again in the second batch
-                //
-                // Because row IDs increase monotonically, we can use the last-sent message's ID as the
-                // "crossing point" between past and future: any message present in the second batch with an ID
-                // smaller than or equal to it has actually already been sent as part of the first batch, and so
-                // shouldn't be sent again to avoid producing duplicate responses.
-                //
-                // This can happen when a message is sent after subscribing to `self.messages_tx` but before executing
-                // the sqlx query.
-                //
-                // NOTE: This is actually not really true at all and we can't guarantee that row ID ordering corresponds
-                // insertion ordering because insertions operate on transactions and those are batched and executed by
-                // postgres' will.
-                //
-                // It works for now though! We can come up with something smarter later.
-                let mut first_batch_last_message_id = None;
-
-                while let Some(result) = results.next().await {
-                    let response = match result {
-                        Ok(record) => {
-                            first_batch_last_message_id = Some(record.id);
-
-                            Ok(GetMessagesResponse {
-                                message_id: record.id,
-                            })
-                        }
-                        Err(error) => Err(error::db(error)),
-                    };
-
-                    if responses_tx.send(response).await.is_err() {
-                        return;
-                    }
-                }
-
-                // Second batch: messages from the future (as in not present in the DB at the time of the request)
-                while let Some(result) = new_messages.next().await {
-                    let response = match result {
-                        Ok(message_id) => {
-                            if first_batch_last_message_id
-                                .is_none_or(|last_message_id| message_id > last_message_id)
-                            {
-                                Ok(GetMessagesResponse { message_id })
-                            } else {
-                                continue;
+                    while let Some(result) = records.next().await {
+                        let response = match result {
+                            Ok(record) => {
+                                current_chat_position = record.chat_position;
+                                Ok(record.id)
                             }
-                        }
-                        Err(error) => {
-                            warn!(?error, "Notification failure");
-                            Err(Status::internal("Failed to receive message"))
-                        }
-                    };
+                            Err(error) => Err(error.into_status()),
+                        };
 
-                    if responses_tx.send(response).await.is_err() {
-                        return;
+                        if responses_tx.send(response).await.is_err() {
+                            return;
+                        }
+                    }
+
+                    if notifications.changed().await.is_err() {
+                        let error = MessageNotificationError::ListenerStopped;
+                        if responses_tx.send(Err(error.into_status())).await.is_err() {
+                            return;
+                        }
                     }
                 }
             }
             .in_current_span(),
         );
 
-        Ok(Response::new(Box::pin(ReceiverStream::new(responses_rx))))
+        Ok(ReceiverStream::new(responses_rx))
     }
 }
 
-struct NewMessageNotification {
-    chat_id: RowId,
-    message_id: RowId,
+enum ExistingMessages {
+    Include,
+    Exclude,
 }
 
-impl FromStr for NewMessageNotification {
-    type Err = NewMessageNotificationParseError;
+struct MessageNotifications {
+    chats: Weak<RwLock<MessageNotificationMap>>,
+    _listener_task: AbortOnDropHandle<Result<(), MessageNotificationError>>,
+}
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut ids = s.split(',').map(str::parse);
-        let mut next_id = || {
-            ids.next()
-                .ok_or(NewMessageNotificationParseError::InvalidNumberOfIds)?
-                .map_err(NewMessageNotificationParseError::InvalidId)
-        };
+impl MessageNotifications {
+    async fn listen(db: &PgPool) -> Result<Self, MessageNotificationError> {
+        let mut listener = PgListener::connect_with(db).await?;
+        listener.listen("new_message").await?;
+
+        let chats = Arc::new(RwLock::new(MessageNotificationMap::new()));
+        let weak_chats = Arc::downgrade(&chats);
+
+        let listener_task = AbortOnDropHandle::new(tokio::spawn(
+            async move {
+                let mut notifications = listener.into_stream();
+
+                while let Some(notification) = notifications.next().await {
+                    let chat_id = notification?.payload().parse::<RowId>()?;
+
+                    if let Some(notifications_tx) = chats.read().await.get(&chat_id) {
+                        let _ = notifications_tx.send(());
+                    }
+                }
+
+                Ok(())
+            }
+            .instrument(tracing::info_span!("listen")),
+        ));
 
         Ok(Self {
-            chat_id: next_id()?,
-            message_id: next_id()?,
+            chats: weak_chats,
+            _listener_task: listener_task,
         })
+    }
+
+    async fn subscribe(
+        &self,
+        chat_id: RowId,
+    ) -> Result<watch::Receiver<()>, MessageNotificationError> {
+        let chats = self
+            .chats
+            .upgrade()
+            .ok_or(MessageNotificationError::ListenerStopped)?;
+
+        // Optimistic read first: if this chat has already been subscribed to before we can avoid taking a writer lock.
+        if let Some(notifications_tx) = chats.read().await.get(&chat_id) {
+            return Ok(notifications_tx.subscribe());
+        }
+
+        Ok(chats
+            .write()
+            .await
+            .entry(chat_id)
+            .or_insert_with(|| watch::channel(()).0)
+            .subscribe())
     }
 }
 
-#[derive(Debug, Error)]
-enum NewMessageNotificationParseError {
-    #[error("Got an invalid row ID from postgres: {0}")]
-    InvalidId(ParseIntError),
+/// Maps a chat ID to a notification sender for new messages in that chat.
+type MessageNotificationMap = HashMap<RowId, watch::Sender<()>>;
 
-    #[error("Got an number of row ID from postgres")]
-    InvalidNumberOfIds,
+#[derive(Debug, Error)]
+pub enum MessageNotificationError {
+    #[error("Database error: {0}")]
+    Database(#[from] sqlx::Error),
+
+    #[error("Invalid chat ID in message notification: {0}")]
+    InvalidChatId(#[from] ParseIntError),
+
+    #[error("Message notification listener stopped")]
+    ListenerStopped,
+}
+
+impl IntoStatus for MessageNotificationError {
+    const MESSAGE: &'static str = "Message notification error";
 }
