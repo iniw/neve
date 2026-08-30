@@ -79,7 +79,7 @@ async fn main() -> anyhow::Result<()> {
 
     let auth_server = AuthServer::new(pool.clone(), args.paseto_key);
     let chat_server = ChatServer::new(pool.clone());
-    let message_server = MessageServer::new(pool);
+    let message_server = MessageServer::new(pool).await?;
 
     let server = Server::builder()
         .tls_config(ServerTlsConfig::new().identity(Identity::from_pem(

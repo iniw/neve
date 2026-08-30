@@ -182,7 +182,7 @@ impl AuthServer {
         }
     }
 
-    pub async fn generate_account(&self) -> Result<RowId, Status> {
+    pub async fn generate_authenticated_account(&self) -> Result<AuthInfo, Status> {
         static GENERATED_ACCOUNT_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
         let generated_account_id = GENERATED_ACCOUNT_COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -204,7 +204,7 @@ impl AuthServer {
         let auth_info = AuthInfo::from_auth_token(&auth_token, &self.paseto_key)
             .expect("Auth token must be valid");
 
-        Ok(auth_info.account_id)
+        Ok(auth_info)
     }
 }
 

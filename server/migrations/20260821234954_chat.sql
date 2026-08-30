@@ -2,7 +2,10 @@ CREATE TABLE chat (
   id int PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
 
   -- The name of this chat.
-  name text
+  name text,
+
+  -- The position to assign to the next message in this chat.
+  next_message_position int NOT NULL DEFAULT 0
 );
 
 CREATE TABLE chat_account (
