@@ -17,13 +17,11 @@ CREATE TABLE message (
 );
 
 CREATE FUNCTION notify_new_message()
-RETURNS trigger
+RETURNS TRIGGER
 LANGUAGE plpgsql
 AS $$
 BEGIN
-  PERFORM pg_notify('new_message', chat_id::text)
-  FROM (SELECT DISTINCT chat_id FROM new_messages) AS chats;
-
+  PERFORM pg_notify('new_message', chat_id::text) FROM (SELECT DISTINCT chat_id FROM new_messages);
   RETURN NULL;
 END;
 $$;
