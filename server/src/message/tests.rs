@@ -1,10 +1,9 @@
 use std::collections::HashSet;
 
+use crate::{auth::AuthServer, chat::ChatServer};
 use neve_proto::server::v1::{
     CreateChatRequest, CreateChatResponse, chat_service_server::ChatService,
 };
-
-use crate::{auth::AuthServer, chat::ChatServer};
 
 use super::*;
 
