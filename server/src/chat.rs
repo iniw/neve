@@ -69,7 +69,7 @@ impl ChatService for ChatServer {
             records.into_iter().map(|record| record.username).join(", ")
         };
 
-        let chat = sqlx::query!(
+        let chat_id = sqlx::query_scalar!(
             r#"
                 INSERT INTO chat (name)
                 VALUES ($1)
@@ -87,7 +87,7 @@ impl ChatService for ChatServer {
                     INSERT INTO chat_account (chat_id, account_id)
                     VALUES ($1, $2)
                 "#,
-                chat.id,
+                chat_id,
                 account_id
             )
             .execute(tx.as_mut())
@@ -97,7 +97,7 @@ impl ChatService for ChatServer {
 
         tx.commit().await.map_err(IntoStatus::into_status)?;
 
-        Ok(Response::new(CreateChatResponse { chat_id: chat.id }))
+        Ok(Response::new(CreateChatResponse { chat_id }))
     }
 
     type GetChatsStream = Pin<Box<ReceiverStream<Result<GetChatsResponse, Status>>>>;

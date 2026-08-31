@@ -60,7 +60,7 @@ impl MessageService for MessageServer {
 
         // Updating the chat row serializes message position allocation for this chat. The lock is held until the
         // transaction commits, so message position also matches commit order.
-        let chat = sqlx::query!(
+        let next_message_position = sqlx::query_scalar!(
             r#"
                 UPDATE chat
                 SET next_message_position = next_message_position + 1
@@ -73,7 +73,7 @@ impl MessageService for MessageServer {
         .await
         .map_err(IntoStatus::into_status)?;
 
-        let record = sqlx::query!(
+        let message_id = sqlx::query_scalar!(
             r#"
                 INSERT INTO message (account_id, chat_id, content, chat_position)
                 VALUES ($1, $2, $3, $4)
@@ -82,7 +82,7 @@ impl MessageService for MessageServer {
             account_id,
             chat_id,
             content,
-            chat.next_message_position,
+            next_message_position,
         )
         .fetch_one(tx.as_mut())
         .await
@@ -90,9 +90,7 @@ impl MessageService for MessageServer {
 
         tx.commit().await.map_err(IntoStatus::into_status)?;
 
-        Ok(Response::new(SendMessageResponse {
-            message_id: record.id,
-        }))
+        Ok(Response::new(SendMessageResponse { message_id }))
     }
 
     #[instrument(skip(self), fields(request = ?request.get_ref()), err)]
@@ -134,7 +132,7 @@ impl MessageService for MessageServer {
         let (responses_tx, responses_rx) = mpsc::channel(1024);
         tokio::spawn(
             async move {
-                let mut results = sqlx::query!(
+                let mut results = sqlx::query_scalar!(
                     r#"
                         SELECT id
                         FROM message
@@ -147,9 +145,7 @@ impl MessageService for MessageServer {
 
                 while let Some(result) = results.next().await {
                     let response = match result {
-                        Ok(record) => Ok(GetPastMessagesResponse {
-                            message_id: record.id,
-                        }),
+                        Ok(message_id) => Ok(GetPastMessagesResponse { message_id }),
                         Err(error) => Err(error.into_status()),
                     };
 
