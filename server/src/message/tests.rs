@@ -1,5 +1,4 @@
 use crate::{auth::AuthServer, chat::ChatServer};
-use futures::{TryStreamExt, stream::FuturesUnordered};
 use neve_proto::server::v1::{
     CreateChatRequest, CreateChatResponse, chat_service_server::ChatService,
 };
@@ -146,20 +145,19 @@ async fn get_future_messages(db: PgPool) -> anyhow::Result<()> {
         .await?
         .into_inner();
 
-    let sent_messages = ["Hello!", "Yes!", "Bye!"]
-        .into_iter()
-        .map(|message| {
-            server.send_message(AuthInfo::request_from(
+    let mut sent_messages = Vec::new();
+    for message in ["Hello!", "Yes!", "Bye!"] {
+        let response = server
+            .send_message(AuthInfo::request_from(
                 vini,
                 SendMessageRequest {
                     chat_id,
                     content: message.to_owned(),
                 },
             ))
-        })
-        .collect::<FuturesUnordered<_>>()
-        .try_collect::<Vec<_>>()
-        .await?;
+            .await?;
+        sent_messages.push(response);
+    }
 
     for sent_message in sent_messages {
         let response = responses.next().await.expect("A message was just sent")?;
@@ -189,19 +187,19 @@ async fn get_messages(db: PgPool) -> anyhow::Result<()> {
         .await?
         .into_inner();
 
-    let past_messages = (0..16)
-        .map(|index| {
-            server.send_message(AuthInfo::request_from(
+    let mut past_messages = Vec::new();
+    for n in 0..16 {
+        let response = server
+            .send_message(AuthInfo::request_from(
                 vini,
                 SendMessageRequest {
                     chat_id,
-                    content: format!("Past {index}"),
+                    content: format!("Past {n}"),
                 },
             ))
-        })
-        .collect::<FuturesUnordered<_>>()
-        .try_collect::<Vec<_>>()
-        .await?;
+            .await?;
+        past_messages.push(response);
+    }
 
     let mut responses = server
         .get_messages(Request::new(GetMessagesRequest { chat_id }))
@@ -214,19 +212,19 @@ async fn get_messages(db: PgPool) -> anyhow::Result<()> {
         assert_eq!(response.message_id, message.get_ref().message_id);
     }
 
-    let future_messages = (0..16)
-        .map(|index| {
-            server.send_message(AuthInfo::request_from(
+    let mut future_messages = Vec::new();
+    for n in 0..16 {
+        let response = server
+            .send_message(AuthInfo::request_from(
                 vini,
                 SendMessageRequest {
                     chat_id,
-                    content: format!("Message {index}"),
+                    content: format!("Message {n}"),
                 },
             ))
-        })
-        .collect::<FuturesUnordered<_>>()
-        .try_collect::<Vec<_>>()
-        .await?;
+            .await?;
+        future_messages.push(response);
+    }
 
     // And from the future
     for message in future_messages {
