@@ -7,24 +7,21 @@ async fn create_then_get(db: PgPool) -> anyhow::Result<()> {
     let auth_server = AuthServer::for_tests(db.clone());
     let server = ChatServer::new(db);
 
-    let AuthInfo { account_id: vini } = auth_server.generate_authenticated_account().await?;
-    let AuthInfo { account_id: julia } = auth_server.generate_authenticated_account().await?;
+    let vini = auth_server.test_account().await?;
+    let julia = auth_server.test_account().await?;
 
     let CreateChatResponse { chat_id } = server
-        .create_chat(AuthInfo::request_from(
-            vini,
-            CreateChatRequest {
-                participants: vec![julia],
-                name: None,
-            },
-        ))
+        .create_chat(vini.request(CreateChatRequest {
+            participants: vec![julia.account_id],
+            name: None,
+        }))
         .await?
         .into_inner();
 
     assert_eq!(chat_id, 1);
 
     let mut responses = server
-        .get_chats(AuthInfo::request_from(vini, GetChatsRequest {}))
+        .get_chats(vini.request(GetChatsRequest {}))
         .await?
         .into_inner();
 

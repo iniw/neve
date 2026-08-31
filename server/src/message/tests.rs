@@ -11,30 +11,24 @@ async fn get_message(db: PgPool) -> anyhow::Result<()> {
     let chat_server = ChatServer::new(db.clone());
     let server = MessageServer::new(db).await?;
 
-    let AuthInfo { account_id: vini } = auth_server.generate_authenticated_account().await?;
-    let AuthInfo { account_id: julia } = auth_server.generate_authenticated_account().await?;
+    let vini = auth_server.test_account().await?;
+    let julia = auth_server.test_account().await?;
 
     let CreateChatResponse { chat_id } = chat_server
-        .create_chat(AuthInfo::request_from(
-            vini,
-            CreateChatRequest {
-                participants: vec![julia],
-                name: None,
-            },
-        ))
+        .create_chat(vini.request(CreateChatRequest {
+            participants: vec![julia.account_id],
+            name: None,
+        }))
         .await?
         .into_inner();
 
     let content = "Hello!".to_owned();
 
     let SendMessageResponse { message_id } = server
-        .send_message(AuthInfo::request_from(
-            vini,
-            SendMessageRequest {
-                chat_id,
-                content: content.clone(),
-            },
-        ))
+        .send_message(vini.request(SendMessageRequest {
+            chat_id,
+            content: content.clone(),
+        }))
         .await?
         .into_inner();
 
@@ -43,7 +37,7 @@ async fn get_message(db: PgPool) -> anyhow::Result<()> {
         .await?
         .into_inner();
 
-    assert_eq!(response.account_id, vini);
+    assert_eq!(response.account_id, vini.account_id);
     assert_eq!(response.chat_id, chat_id);
     assert_eq!(response.content, content);
 
@@ -56,17 +50,14 @@ async fn get_past_messages(db: PgPool) -> anyhow::Result<()> {
     let chat_server = ChatServer::new(db.clone());
     let server = MessageServer::new(db).await?;
 
-    let AuthInfo { account_id: vini } = auth_server.generate_authenticated_account().await?;
-    let AuthInfo { account_id: julia } = auth_server.generate_authenticated_account().await?;
+    let vini = auth_server.test_account().await?;
+    let julia = auth_server.test_account().await?;
 
     let CreateChatResponse { chat_id } = chat_server
-        .create_chat(AuthInfo::request_from(
-            vini,
-            CreateChatRequest {
-                participants: vec![julia],
-                name: None,
-            },
-        ))
+        .create_chat(vini.request(CreateChatRequest {
+            participants: vec![julia.account_id],
+            name: None,
+        }))
         .await?
         .into_inner();
 
@@ -83,13 +74,10 @@ async fn get_past_messages(db: PgPool) -> anyhow::Result<()> {
     let content = "Hello!".to_owned();
 
     let SendMessageResponse { message_id } = server
-        .send_message(AuthInfo::request_from(
-            vini,
-            SendMessageRequest {
-                chat_id,
-                content: content.clone(),
-            },
-        ))
+        .send_message(vini.request(SendMessageRequest {
+            chat_id,
+            content: content.clone(),
+        }))
         .await?
         .into_inner();
 
@@ -116,28 +104,22 @@ async fn get_future_messages(db: PgPool) -> anyhow::Result<()> {
     let chat_server = ChatServer::new(db.clone());
     let server = MessageServer::new(db).await?;
 
-    let AuthInfo { account_id: vini } = auth_server.generate_authenticated_account().await?;
-    let AuthInfo { account_id: julia } = auth_server.generate_authenticated_account().await?;
+    let vini = auth_server.test_account().await?;
+    let julia = auth_server.test_account().await?;
 
     let CreateChatResponse { chat_id } = chat_server
-        .create_chat(AuthInfo::request_from(
-            vini,
-            CreateChatRequest {
-                participants: vec![julia],
-                name: None,
-            },
-        ))
+        .create_chat(vini.request(CreateChatRequest {
+            participants: vec![julia.account_id],
+            name: None,
+        }))
         .await?
         .into_inner();
 
     server
-        .send_message(AuthInfo::request_from(
-            vini,
-            SendMessageRequest {
-                chat_id,
-                content: "Past".to_owned(),
-            },
-        ))
+        .send_message(vini.request(SendMessageRequest {
+            chat_id,
+            content: "Past".to_owned(),
+        }))
         .await?;
 
     let mut responses = server
@@ -148,20 +130,17 @@ async fn get_future_messages(db: PgPool) -> anyhow::Result<()> {
     let mut sent_messages = Vec::new();
     for message in ["Hello!", "Yes!", "Bye!"] {
         let response = server
-            .send_message(AuthInfo::request_from(
-                vini,
-                SendMessageRequest {
-                    chat_id,
-                    content: message.to_owned(),
-                },
-            ))
+            .send_message(vini.request(SendMessageRequest {
+                chat_id,
+                content: message.to_owned(),
+            }))
             .await?;
         sent_messages.push(response);
     }
 
-    for sent_message in sent_messages {
+    for message in sent_messages {
         let response = responses.next().await.expect("A message was just sent")?;
-        assert_eq!(response.message_id, sent_message.get_ref().message_id);
+        assert_eq!(response.message_id, message.get_ref().message_id);
     }
 
     Ok(())
@@ -173,30 +152,24 @@ async fn get_messages(db: PgPool) -> anyhow::Result<()> {
     let chat_server = ChatServer::new(db.clone());
     let server = MessageServer::new(db).await?;
 
-    let AuthInfo { account_id: vini } = auth_server.generate_authenticated_account().await?;
-    let AuthInfo { account_id: julia } = auth_server.generate_authenticated_account().await?;
+    let vini = auth_server.test_account().await?;
+    let julia = auth_server.test_account().await?;
 
     let CreateChatResponse { chat_id } = chat_server
-        .create_chat(AuthInfo::request_from(
-            vini,
-            CreateChatRequest {
-                participants: vec![julia],
-                name: None,
-            },
-        ))
+        .create_chat(vini.request(CreateChatRequest {
+            participants: vec![julia.account_id],
+            name: None,
+        }))
         .await?
         .into_inner();
 
     let mut past_messages = Vec::new();
     for n in 0..16 {
         let response = server
-            .send_message(AuthInfo::request_from(
-                vini,
-                SendMessageRequest {
-                    chat_id,
-                    content: format!("Past {n}"),
-                },
-            ))
+            .send_message(vini.request(SendMessageRequest {
+                chat_id,
+                content: format!("Past {n}"),
+            }))
             .await?;
         past_messages.push(response);
     }
@@ -215,13 +188,10 @@ async fn get_messages(db: PgPool) -> anyhow::Result<()> {
     let mut future_messages = Vec::new();
     for n in 0..16 {
         let response = server
-            .send_message(AuthInfo::request_from(
-                vini,
-                SendMessageRequest {
-                    chat_id,
-                    content: format!("Message {n}"),
-                },
-            ))
+            .send_message(vini.request(SendMessageRequest {
+                chat_id,
+                content: format!("Message {n}"),
+            }))
             .await?;
         future_messages.push(response);
     }
