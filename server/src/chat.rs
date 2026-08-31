@@ -7,12 +7,11 @@ use tokio_stream::{StreamExt, wrappers::ReceiverStream};
 use tonic::{Request, Response, Status};
 use tracing::{Instrument, instrument};
 
+use crate::{auth::AuthInfo, error::IntoStatus};
 use neve_proto::server::v1::{
     CreateChatRequest, CreateChatResponse, GetChatsRequest, GetChatsResponse,
     chat_service_server::{ChatService, ChatServiceServer},
 };
-
-use crate::{auth::AuthInfo, error::IntoStatus};
 
 #[cfg(test)]
 mod tests;
@@ -53,7 +52,7 @@ impl ChatService for ChatServer {
         let name = if let Some(name) = name {
             name
         } else {
-            let records = sqlx::query!(
+            let accounts = sqlx::query!(
                 r#"
                     SELECT username
                     FROM account
@@ -66,7 +65,10 @@ impl ChatService for ChatServer {
             .await
             .map_err(IntoStatus::into_status)?;
 
-            records.into_iter().map(|record| record.username).join(", ")
+            accounts
+                .into_iter()
+                .map(|account| account.username)
+                .join(", ")
         };
 
         let chat_id = sqlx::query_scalar!(
@@ -125,8 +127,8 @@ impl ChatService for ChatServer {
 
                 while let Some(result) = results.next().await {
                     let response = match result {
-                        Ok(record) => Ok(GetChatsResponse {
-                            chat_id: record.chat_id,
+                        Ok(chat_account) => Ok(GetChatsResponse {
+                            chat_id: chat_account.chat_id,
                         }),
                         Err(error) => Err(error.into_status()),
                     };

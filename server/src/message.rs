@@ -13,6 +13,7 @@ use tokio_util::task::AbortOnDropHandle;
 use tonic::{Request, Response, Status};
 use tracing::{Instrument, instrument};
 
+use crate::{auth::AuthInfo, error::IntoStatus};
 use neve_proto::server::v1::{
     GetFutureMessagesRequest, GetFutureMessagesResponse, GetMessageRequest, GetMessageResponse,
     GetMessagesRequest, GetMessagesResponse, GetPastMessagesRequest, GetPastMessagesResponse,
@@ -21,22 +22,20 @@ use neve_proto::server::v1::{
 };
 use neve_server::RowId;
 
-use crate::{auth::AuthInfo, error::IntoStatus};
-
 #[cfg(test)]
 mod tests;
 
 pub struct MessageServer {
     db: PgPool,
-    message_notifications: MessageNotifications,
+    message_listener: MessageListener,
 }
 
 impl MessageServer {
-    pub async fn new(db: PgPool) -> Result<Self, MessageNotificationError> {
-        let message_notifications = MessageNotifications::listen(&db).await?;
+    pub async fn new(db: PgPool) -> Result<Self, MessageListenerError> {
+        let message_listener = MessageListener::listen(&db).await?;
         Ok(Self {
             db,
-            message_notifications,
+            message_listener,
         })
     }
 
@@ -100,7 +99,7 @@ impl MessageService for MessageServer {
     ) -> Result<Response<GetMessageResponse>, Status> {
         let GetMessageRequest { message_id } = request.into_inner();
 
-        let record = sqlx::query!(
+        let message = sqlx::query!(
             r#"
                 SELECT account_id, chat_id, content
                 FROM message
@@ -113,9 +112,9 @@ impl MessageService for MessageServer {
         .map_err(IntoStatus::into_status)?;
 
         Ok(Response::new(GetMessageResponse {
-            account_id: record.account_id,
-            chat_id: record.chat_id,
-            content: record.content,
+            account_id: message.account_id,
+            chat_id: message.chat_id,
+            content: message.content,
         }))
     }
 
@@ -204,8 +203,8 @@ impl MessageServer {
         &self,
         chat_id: RowId,
         existing_messages: ExistingMessages,
-    ) -> Result<ReceiverStream<Result<RowId, Status>>, MessageNotificationError> {
-        let mut notifications = self.message_notifications.subscribe(chat_id).await?;
+    ) -> Result<ReceiverStream<Result<RowId, Status>>, MessageListenerError> {
+        let mut notifications = self.message_listener.subscribe(chat_id).await?;
 
         let mut current_chat_position = match existing_messages {
             ExistingMessages::Include => 0,
@@ -227,7 +226,7 @@ impl MessageServer {
         tokio::spawn(
             async move {
                 loop {
-                    let mut records = sqlx::query!(
+                    let mut results = sqlx::query!(
                         r#"
                             SELECT id, chat_position
                             FROM message
@@ -239,11 +238,11 @@ impl MessageServer {
                     )
                     .fetch(&db);
 
-                    while let Some(result) = records.next().await {
+                    while let Some(result) = results.next().await {
                         let response = match result {
-                            Ok(record) => {
-                                current_chat_position = record.chat_position;
-                                Ok(record.id)
+                            Ok(message) => {
+                                current_chat_position = message.chat_position;
+                                Ok(message.id)
                             }
                             Err(error) => Err(error.into_status()),
                         };
@@ -254,7 +253,7 @@ impl MessageServer {
                     }
 
                     if notifications.changed().await.is_err() {
-                        let error = MessageNotificationError::ListenerStopped;
+                        let error = MessageListenerError::ListenerStopped;
                         if responses_tx.send(Err(error.into_status())).await.is_err() {
                             return;
                         }
@@ -273,17 +272,17 @@ enum ExistingMessages {
     Exclude,
 }
 
-struct MessageNotifications {
-    chats: Weak<RwLock<MessageNotificationMap>>,
-    _listener_task: AbortOnDropHandle<Result<(), MessageNotificationError>>,
+struct MessageListener {
+    chats: Weak<RwLock<MessageListenerMap>>,
+    _listener_task: AbortOnDropHandle<Result<(), MessageListenerError>>,
 }
 
-impl MessageNotifications {
-    async fn listen(db: &PgPool) -> Result<Self, MessageNotificationError> {
+impl MessageListener {
+    async fn listen(db: &PgPool) -> Result<Self, MessageListenerError> {
         let mut listener = PgListener::connect_with(db).await?;
         listener.listen("new_message").await?;
 
-        let chats = Arc::new(RwLock::new(MessageNotificationMap::new()));
+        let chats = Arc::new(RwLock::new(MessageListenerMap::new()));
         let weak_chats = Arc::downgrade(&chats);
 
         let listener_task = AbortOnDropHandle::new(tokio::spawn(
@@ -309,14 +308,11 @@ impl MessageNotifications {
         })
     }
 
-    async fn subscribe(
-        &self,
-        chat_id: RowId,
-    ) -> Result<watch::Receiver<()>, MessageNotificationError> {
+    async fn subscribe(&self, chat_id: RowId) -> Result<watch::Receiver<()>, MessageListenerError> {
         let chats = self
             .chats
             .upgrade()
-            .ok_or(MessageNotificationError::ListenerStopped)?;
+            .ok_or(MessageListenerError::ListenerStopped)?;
 
         // Optimistic read first: if this chat has already been subscribed to before we can avoid taking a writer lock.
         if let Some(notifications_tx) = chats.read().await.get(&chat_id) {
@@ -333,20 +329,20 @@ impl MessageNotifications {
 }
 
 /// Maps a chat ID to a notification sender for new messages in that chat.
-type MessageNotificationMap = HashMap<RowId, watch::Sender<()>>;
+type MessageListenerMap = HashMap<RowId, watch::Sender<()>>;
 
 #[derive(Debug, Error)]
-pub enum MessageNotificationError {
+pub enum MessageListenerError {
     #[error("Database error: {0}")]
     Database(#[from] sqlx::Error),
 
-    #[error("Invalid chat ID in message notification: {0}")]
+    #[error("Invalid chat ID in message: {0}")]
     InvalidChatId(#[from] ParseIntError),
 
-    #[error("Message notification listener stopped")]
+    #[error("Message listener stopped")]
     ListenerStopped,
 }
 
-impl IntoStatus for MessageNotificationError {
-    const MESSAGE: &'static str = "Message notification error";
+impl IntoStatus for MessageListenerError {
+    const MESSAGE: &'static str = "Message listener error";
 }

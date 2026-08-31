@@ -16,6 +16,7 @@ use tonic::{
 };
 use tracing::{Level, instrument};
 
+use crate::error::IntoStatus;
 use neve_proto::{
     AUTH_TOKEN_HEADER,
     server::v1::{
@@ -24,8 +25,6 @@ use neve_proto::{
     },
 };
 use neve_server::RowId;
-
-use crate::error::IntoStatus;
 
 #[cfg(test)]
 pub mod tests;
