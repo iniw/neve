@@ -1,6 +1,5 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use anyhow::Context;
 use futures::future::try_join_all;
 use itertools::Itertools;
 use tonic::Code;
@@ -12,7 +11,7 @@ const PASSWORD: &str = "test-password";
 
 fn paseto_key_for_tests() -> Arc<PasetoSymmetricKey> {
     Arc::new(PasetoSymmetricKey::from(PasetoKey::from(
-        b"test-key-for-neve-auth-tests-123",
+        b"synthetic-key-for-neve-tests-123",
     )))
 }
 
@@ -133,8 +132,8 @@ async fn usernames_are_unique(db: PgPool) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[sqlx::test]
-async fn interceptor_denies_unauthenticated_requests() -> anyhow::Result<()> {
+#[test]
+fn interceptor_denies_unauthenticated_requests() -> anyhow::Result<()> {
     let mut interceptor = AuthInterceptor {
         paseto_key: paseto_key_for_tests(),
     };
@@ -148,14 +147,14 @@ async fn interceptor_denies_unauthenticated_requests() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[sqlx::test]
-async fn interceptor_allows_authenticated_requests() -> anyhow::Result<()> {
+#[test]
+fn interceptor_allows_authenticated_requests() -> anyhow::Result<()> {
     let mut interceptor = AuthInterceptor {
         paseto_key: paseto_key_for_tests(),
     };
 
-    let account_id = 55;
-    let auth_token = AuthInfo { account_id }.into_auth_token(&paseto_key_for_tests())?;
+    let auth_info = AuthInfo { account_id: 55 };
+    let auth_token = auth_info.into_auth_token(&interceptor.paseto_key)?;
 
     let mut request = Request::new(());
     request
@@ -164,12 +163,9 @@ async fn interceptor_allows_authenticated_requests() -> anyhow::Result<()> {
 
     let request = interceptor.call(request)?;
 
-    let auth_info = request
-        .extensions()
-        .get::<AuthInfo>()
-        .context("A successful auth interception should insert `AuthInfo`")?;
+    let roundtrip_auth_info = AuthInfo::from_request(&request)?;
 
-    assert_eq!(auth_info.account_id, account_id);
+    assert_eq!(roundtrip_auth_info, auth_info);
 
     Ok(())
 }
@@ -182,13 +178,16 @@ impl AuthServer {
         }
     }
 
-    pub async fn generate_authenticated_account(&self) -> Result<AuthInfo, Status> {
-        static GENERATED_ACCOUNT_COUNTER: AtomicUsize = AtomicUsize::new(0);
+    /// Registers and authenticates a synthetic account for testing purposes.
+    ///
+    /// To make a request originating from this account use [`AuthInfo::request`].
+    pub async fn test_account(&self) -> Result<AuthInfo, Status> {
+        static TEST_ACCOUNT_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-        let generated_account_id = GENERATED_ACCOUNT_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let test_account_id = TEST_ACCOUNT_COUNTER.fetch_add(1, Ordering::Relaxed);
 
-        let username = format!("test-{generated_account_id}");
-        let password = username.clone();
+        let username = format!("test-{test_account_id}");
+        let password = "coxinha123".to_owned();
 
         self.register(Request::new(RegisterRequest {
             username: username.clone(),
@@ -209,11 +208,11 @@ impl AuthServer {
 }
 
 impl AuthInfo {
-    /// Creates a [`Request`] with synthetic [`AuthInfo`] containing the given `account_id`, making it look like it was
-    /// requested by that account through the normal [`AuthInterceptor`] flow.
-    pub fn request_from<T>(account_id: RowId, value: T) -> Request<T> {
+    /// Creates a [`Request`] containing the current auth info in it's extensions, making it look like it was requested
+    /// by this account through the normal [`AuthInterceptor`] flow.
+    pub fn request<T>(&self, value: T) -> Request<T> {
         let mut request = Request::new(value);
-        request.extensions_mut().insert(AuthInfo { account_id });
+        request.extensions_mut().insert(*self);
         request
     }
 }

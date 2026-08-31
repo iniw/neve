@@ -157,7 +157,7 @@ impl Interceptor for AuthInterceptor {
 }
 
 /// Authentication-related information that [`AuthInterceptor`] adds to every correctly authenticated [`Request`].
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthInfo {
     /// The ID of the account that performed the request.
     pub account_id: RowId,
@@ -178,7 +178,7 @@ impl AuthInfo {
     /// Must never match one of the [reserved claims](https://github.com/paseto-standard/paseto-spec/blob/master/docs/02-Implementation-Guide/04-Claims.md).
     const CLAIM_KEY: &str = "neve-auth-info";
 
-    /// Builds an authentication token for the current authentication information using the given `paseto_key`
+    /// Builds an authentication token for the current authentication information using the given `paseto_key`.
     fn into_auth_token(self, paseto_key: &PasetoSymmetricKey) -> Result<String, PasetoError> {
         PasetoBuilder::default()
             .expires_in(Duration::from_hours(24 * 7))
