@@ -10,6 +10,15 @@ service AuthService {
   //
   // This is required to interact with all other services.
   rpc Authenticate(AuthenticateRequest) returns (AuthenticateResponse);
+
+  // Try authenticating if this account already exist, otherwise register first then authenticate.
+  //
+  // Equivalent to roughly:
+  // - Authenticate()
+  // - if err
+  //   - Register()
+  //   - Authenticate()
+  rpc AuthenticateOrRegister(AuthenticateOrRegisterRequest) returns (AuthenticateOrRegisterResponse);
 }
 
 message RegisterRequest {
@@ -20,7 +29,10 @@ message RegisterRequest {
   string password = 2;
 }
 
-message RegisterResponse {}
+message RegisterResponse {
+  // The ID of the account that was registered.
+  int32 account_id = 1;
+}
 
 message AuthenticateRequest {
   // The username to use for authentication.
@@ -31,6 +43,23 @@ message AuthenticateRequest {
 }
 
 message AuthenticateResponse {
-  // The token that should be placed in requests sent to other services.
+  // The token that associates requests to this account.
+  //
+  // This must be placed in all future requests sent to other services.
+  string auth_token = 1;
+}
+
+message AuthenticateOrRegisterRequest {
+  // The username to use for authentication or registration.
+  string username = 1;
+
+  // The password to use for authentication or registration.
+  string password = 2;
+}
+
+message AuthenticateOrRegisterResponse {
+  // The token that associates requests to this account.
+  //
+  // This must be placed in all future requests sent to other services.
   string auth_token = 1;
 }

@@ -2,7 +2,6 @@
 import { goto } from "$app/navigation";
 import { authService } from "$lib/proto/auth";
 import { storeAuthToken } from "$lib/proto/auth-token";
-import { ClientError, Status } from "nice-grpc-common";
 
 let username = $state("");
 let password = $state("");
@@ -17,7 +16,7 @@ async function submit(event: SubmitEvent) {
   authentication = { state: "submitting" };
 
   try {
-    const { authToken } = await authService.authenticate({
+    const { authToken } = await authService.authenticateOrRegister({
       username,
       password,
     });
@@ -26,26 +25,6 @@ async function submit(event: SubmitEvent) {
 
     await goto("/chats/new");
   } catch (error) {
-    if (error instanceof ClientError && error.code == Status.NOT_FOUND) {
-      try {
-        void await authService.register({
-          username,
-          password,
-        });
-
-        const { authToken } = await authService.authenticate({
-          username,
-          password,
-        });
-
-        storeAuthToken(authToken);
-
-        return await goto("/chats/new");
-      } catch (inner) {
-        error = inner;
-      }
-    }
-
     authentication = {
       state: "error",
       message: error instanceof Error ? error.message : "Authentication failed",

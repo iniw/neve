@@ -54,6 +54,50 @@ async fn doesnt_authenticate_before_registering(db: PgPool) -> anyhow::Result<()
 }
 
 #[sqlx::test]
+async fn authenticate_or_register_without_registering(db: PgPool) -> anyhow::Result<()> {
+    let server = AuthServer::for_tests(db);
+
+    server
+        .authenticate_or_register(Request::new(AuthenticateOrRegisterRequest {
+            username: USERNAME.to_owned(),
+            password: PASSWORD.to_owned(),
+        }))
+        .await?;
+
+    // Account is now registered, so it can be used for authentication
+    server
+        .authenticate(Request::new(AuthenticateRequest {
+            username: USERNAME.to_owned(),
+            password: PASSWORD.to_owned(),
+        }))
+        .await?;
+
+    Ok(())
+}
+
+#[sqlx::test]
+async fn authenticate_or_register_after_registering(db: PgPool) -> anyhow::Result<()> {
+    let server = AuthServer::for_tests(db);
+
+    server
+        .register(Request::new(RegisterRequest {
+            username: USERNAME.to_owned(),
+            password: PASSWORD.to_owned(),
+        }))
+        .await?;
+
+    // Account is already registered, so this should just authenticate
+    server
+        .authenticate_or_register(Request::new(AuthenticateOrRegisterRequest {
+            username: USERNAME.to_owned(),
+            password: PASSWORD.to_owned(),
+        }))
+        .await?;
+
+    Ok(())
+}
+
+#[sqlx::test]
 async fn auth_tokens_are_unique(db: PgPool) -> anyhow::Result<()> {
     let server = AuthServer::for_tests(db);
 
