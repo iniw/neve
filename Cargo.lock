@@ -1610,9 +1610,9 @@ dependencies = [
 
 [[package]]
 name = "rusty_paseto"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b23be9a89285428532551a6b46d303bb00321afceac9919058b995394553eece"
+checksum = "5b899b089a55222bea8ae753faff5554e7c616548c432adfefc444f06507fa26"
 dependencies = [
  "base64",
  "blake2",
