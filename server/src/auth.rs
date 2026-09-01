@@ -11,7 +11,7 @@ use rusty_paseto::{
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use tonic::{
-    Request, Response, Status,
+    Code, Request, Response, Status,
     service::{Interceptor, interceptor::InterceptedService},
 };
 use tracing::{Level, instrument};
@@ -20,7 +20,8 @@ use crate::error::IntoStatus;
 use neve_proto::{
     AUTH_TOKEN_HEADER,
     server::v1::{
-        AuthenticateRequest, AuthenticateResponse, RegisterRequest, RegisterResponse,
+        AuthenticateOrRegisterRequest, AuthenticateOrRegisterResponse, AuthenticateRequest,
+        AuthenticateResponse, RegisterRequest, RegisterResponse,
         auth_service_server::{AuthService, AuthServiceServer},
     },
 };
@@ -68,15 +69,16 @@ impl AuthService for AuthServer {
 
         let hashed_password = Self::hash_password(password).await?;
 
-        sqlx::query!(
+        let account_id = sqlx::query_scalar!(
             r#"
                 INSERT INTO account (username, password)
                 VALUES ($1, $2)
+                RETURNING id
             "#,
             username,
             hashed_password
         )
-        .execute(&self.db)
+        .fetch_one(&self.db)
         .await
         .map_err(|error| {
             // Specialize the error for username collisions to provide a better error message,
@@ -90,7 +92,7 @@ impl AuthService for AuthServer {
             }
         })?;
 
-        Ok(Response::new(RegisterResponse {}))
+        Ok(Response::new(RegisterResponse { account_id }))
     }
 
     #[instrument(skip(self, request), fields(request.username = ?request.get_ref().username), err)]
@@ -122,6 +124,44 @@ impl AuthService for AuthServer {
         .map_err(|_| Status::internal("Failed to build authentication token"))?;
 
         Ok(Response::new(AuthenticateResponse { auth_token }))
+    }
+
+    #[instrument(skip(self, request), fields(request.username = ?request.get_ref().username), err)]
+    async fn authenticate_or_register(
+        &self,
+        request: Request<AuthenticateOrRegisterRequest>,
+    ) -> Result<Response<AuthenticateOrRegisterResponse>, Status> {
+        let AuthenticateOrRegisterRequest { username, password } = request.into_inner();
+
+        match self
+            .authenticate(Request::new(AuthenticateRequest {
+                username: username.clone(),
+                password: password.clone(),
+            }))
+            .await
+        {
+            Ok(response) => {
+                let AuthenticateResponse { auth_token } = response.into_inner();
+
+                Ok(Response::new(AuthenticateOrRegisterResponse { auth_token }))
+            }
+            Err(error) => {
+                if error.code() == Code::NotFound {
+                    let RegisterResponse { account_id } = self
+                        .register(Request::new(RegisterRequest { username, password }))
+                        .await?
+                        .into_inner();
+
+                    let auth_token = AuthInfo { account_id }
+                        .into_auth_token(&self.paseto_key)
+                        .map_err(|_| Status::internal("Failed to build authentication token"))?;
+
+                    Ok(Response::new(AuthenticateOrRegisterResponse { auth_token }))
+                } else {
+                    Err(error)
+                }
+            }
+        }
     }
 }
 
