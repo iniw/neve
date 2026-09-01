@@ -1,6 +1,5 @@
 use std::pin::Pin;
 
-use itertools::Itertools;
 use sqlx::PgPool;
 use tokio::sync::mpsc;
 use tokio_stream::{StreamExt, wrappers::ReceiverStream};
@@ -52,7 +51,7 @@ impl ChatService for ChatServer {
         let name = if let Some(name) = name {
             name
         } else {
-            let accounts = sqlx::query!(
+            let usernames = sqlx::query_scalar!(
                 r#"
                     SELECT username
                     FROM account
@@ -65,10 +64,7 @@ impl ChatService for ChatServer {
             .await
             .map_err(IntoStatus::into_status)?;
 
-            accounts
-                .into_iter()
-                .map(|account| account.username)
-                .join(", ")
+            usernames.join(", ")
         };
 
         let chat_id = sqlx::query_scalar!(
@@ -115,7 +111,7 @@ impl ChatService for ChatServer {
         let (responses_tx, responses_rx) = mpsc::channel(10);
         tokio::spawn(
             async move {
-                let mut results = sqlx::query!(
+                let mut results = sqlx::query_scalar!(
                     r#"
                         SELECT chat_id
                         FROM chat_account
@@ -127,9 +123,7 @@ impl ChatService for ChatServer {
 
                 while let Some(result) = results.next().await {
                     let response = match result {
-                        Ok(chat_account) => Ok(GetChatsResponse {
-                            chat_id: chat_account.chat_id,
-                        }),
+                        Ok(chat_id) => Ok(GetChatsResponse { chat_id }),
                         Err(error) => Err(error.into_status()),
                     };
 
