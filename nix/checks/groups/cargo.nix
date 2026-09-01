@@ -4,6 +4,7 @@
   lib,
   ephemeralPostgresDbHook,
   protobufGenerationHook,
+  cargo-shear,
 }:
 let
   # crane automatically appends the "type" of the derivation to as a suffix `pname`:
@@ -14,8 +15,7 @@ let
   #
   # To achieve this we set `pname` to "cargo" and let crane add the suffix, then match the check's name to crane's
   # suffix.
-  # The only exception to this is the `crane.buildPackage` builder that we use for the `cargo-build-and-test` check,
-  # which doesn't append a suffix, so we just set it's name manually.
+  # Builders without a matching suffix set `pname` manually.
   pname = "cargo";
 
   src = lib.cleanSourceWith {
@@ -84,5 +84,21 @@ in
 
   cargo-fmt = crane.cargoFmt {
     inherit pname src;
+  };
+
+  cargo-shear = crane.mkCargoDerivation {
+    pname = "cargo-shear";
+
+    inherit src;
+
+    nativeBuildInputs = [ cargo-shear ];
+    buildPhaseCargoCommand = "cargo shear --frozen --deny-warnings";
+
+    # Note that this and cargo-deps still use the same vendor derivation, so both checks can run in parallel after
+    # vendoring the dependencies, which is optimal in terms of work distribution.
+    cargoArtifacts = null;
+    # cargo shear does not build artifacts, so there are no new artifacts to save.
+    doInstallCargoArtifacts = false;
+
   };
 }
