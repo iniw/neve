@@ -230,7 +230,8 @@ impl AuthInfo {
 
     /// Parses an authentication token and returns its authentication information.
     ///
-    /// The token must be valid for `paseto_key` and contain an integer `uid` claim that fits in a [`RowId`].
+    /// The token must've been generated using `paseto_key` and contain a json-serialized [`AuthInfo`] in the
+    /// [`Self::CLAIM_KEY`] claim key.
     fn from_auth_token(
         auth_token: &str,
         paseto_key: &PasetoSymmetricKey,
@@ -241,7 +242,7 @@ impl AuthInfo {
 
         let auth_info = json
             .get(Self::CLAIM_KEY)
-            .ok_or(PasetoError::MissingClaim(Self::CLAIM_KEY.to_owned()))?;
+            .ok_or_else(|| PasetoError::MissingClaim(Self::CLAIM_KEY.to_owned()))?;
 
         Self::deserialize(auth_info)
             .map_err(|_| PasetoError::UnexpectedClaimType(Self::CLAIM_KEY.to_owned()))
